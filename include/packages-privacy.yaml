@@ -1,0 +1,34 @@
+{{- $architecture := or .architecture "arm64" -}}
+
+architecture: {{ $architecture }}
+
+actions:
+  - action: apt
+    recommends: true
+    description: Install Privacy packages
+    packages:
+      - tor
+      - torsocks
+      - dnscrypt-proxy
+      - proxychains
+      - macchanger
+      - keepassxc
+      - seahorse
+      - cryptsetup
+      - zulucrypt-gui
+      - zulucrypt-cli
+      - thunderbird
+      - gnupg
+      - mat2
+      - onionshare
+      
+
+actions:
+  - action: run
+    chroot: false
+    command: wget https://github.com/commander-Z3R0/mobails-plymouth-theme/releases/download/latest/mobails-plymouth-theme-latest.deb
+
+  - action: run
+    chroot: false
+    command: dpkg -i mobails-plymouth-theme-latest.deb
+      
