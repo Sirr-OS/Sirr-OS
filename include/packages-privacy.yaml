@@ -15,8 +15,6 @@ actions:
       - keepassxc
       - seahorse
       - cryptsetup
-      - zulucrypt-gui
-      - zulucrypt-cli
       - thunderbird
       - gnupg
       - mat2
