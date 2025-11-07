@@ -23,12 +23,12 @@ actions:
       - onionshare
       
 
-actions:
-  - action: run
-    chroot: false
-    command: wget https://github.com/commander-Z3R0/mobails-plymouth-theme/releases/download/latest/mobails-plymouth-theme-latest.deb
+#actions:
+#  - action: run
+#    chroot: false
+#    command: wget https://github.com/commander-Z3R0/mobails-plymouth-theme/releases/download/latest/mobails-plymouth-theme-latest.deb
 
-  - action: run
-    chroot: false
-    command: dpkg -i mobails-plymouth-theme-latest.deb
+#  - action: run
+#    chroot: false
+#    command: dpkg -i mobails-plymouth-theme-latest.deb
       
