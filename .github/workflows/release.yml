@@ -88,13 +88,22 @@ jobs:
             bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
           fi
 
-      - name: Upload image as a release to SirrOS
-        uses: softprops/action-gh-release@v1
+      
+      - name: Upload ISO to GoFile
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          repository: commander-Z3R0/Sirr-OS
-          files: Sirr-OS/SirrOS-pinephonepro-phosh-*.img
-          tag_name: ${{ steps.tag.outputs.tag_name }}
-          name: SirrOS PinePhone Pro Image
-          body: "SirrOS image automatically generated from Sirr-OS repository"
+          GOFILE_SECRET_ID: ${{ secrets.GOFILE_SECRET_ID }}
+        run: |
+          FILE_PATH="Sirr-OS/SirrOS-pinephonepro-phosh-*.img"
+          
+          # Obtener un servidor de GoFile
+          SERVER_JSON=$(curl -s "https://api.gofile.io/getServer")
+          SERVER=$(echo $SERVER_JSON | jq -r '.data.server')
+          
+          # Subir archivo usando Secret ID
+          RESPONSE=$(curl -s -F "file=@$FILE_PATH" "https://$SERVER.gofile.io/uploadFile?token=$GOFILE_SECRET_ID")
+          
+          # Extraer enlace público
+          LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
+          
+          echo "Archivo subido! Enlace público: $LINK"
+          echo "link=$LINK" >> $GITHUB_OUTPUT
