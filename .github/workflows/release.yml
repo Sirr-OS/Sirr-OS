@@ -42,7 +42,7 @@ jobs:
           device="pinephonepro"
           environment="phosh"
           arch="arm64"
-          image_file="SirrOS-${device}-${environment}-${{ steps.tag.outputs.tag_name }}"
+          image_file="SirrOS-${device}-${environment}"
           rootfs_file="rootfs-${arch}-${environment}-nonfree.tar.gz"
           installfs_file="installfs-${arch}.tar.gz"
 
@@ -95,7 +95,9 @@ jobs:
           GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
         run: |
           # Path to the ISO file
-          FILE_PATH="Sirr-OS/SirrOS-pinephonepro-phosh-SirrOS.img"
+#          FILE_PATH="Sirr-OS/SirrOS-pinephonepro-phosh-SirrOS.img"
+    	  cd Sirr-OS
+          FILE_PATH="${image_file}.img"
 
           if [ ! -f "$FILE_PATH" ]; then
             echo "❌ File not found: $FILE_PATH"
