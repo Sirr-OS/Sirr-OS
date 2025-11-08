@@ -88,33 +88,35 @@ jobs:
             bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
           fi
 
-      
+
       - name: Upload ISO to GoFile
         env:
-          GOFILE_SECRET_ID: ${{ secrets.GOFILE_SECRET_ID }}
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
         run: |
           FILE_PATH=$(echo Sirr-OS/SirrOS-pinephonepro-phosh-*.img)
           if [ ! -f "$FILE_PATH" ]; then
-            echo "Archivo no encontrado: $FILE_PATH"
+            echo "❌ File not found: $FILE_PATH"
             exit 1
           fi
-      
-          SERVER_JSON=$(curl -s "https://api.gofile.io/getServer")
-          if echo "$SERVER_JSON" | jq empty >/dev/null 2>&1; then
-            SERVER=$(echo "$SERVER_JSON" | jq -r '.data.server')
-          else
-            echo "Error obteniendo servidor: $SERVER_JSON"
+
+          # Upload the file using Authorization Bearer and folderId from secrets
+          RESPONSE=$(curl -s -X POST "https://upload.gofile.io/uploadfile" \
+            -H "Authorization: Bearer $GOFILE_TOKEN" \
+            -F "file=@$FILE_PATH" \
+            -F "folderId=$GOFILE_FOLDER_ID")
+
+          # Display full response (useful for debugging)
+          echo "Full response:"
+          echo "$RESPONSE"
+
+          # Extract the download link
+          LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+          if [ -z "$LINK" ] || [ "$LINK" == "null" ]; then
+            echo "❌ Upload error: $RESPONSE"
             exit 1
           fi
-      
-          RESPONSE=$(curl -s -F "file=@$FILE_PATH" "https://$SERVER.gofile.io/uploadFile?token=$GOFILE_SECRET_ID")
-      
-          if echo "$RESPONSE" | jq empty >/dev/null 2>&1; then
-            LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
-            echo "Archivo subido! Enlace público: $LINK"
-            echo "link=$LINK" >> $GITHUB_OUTPUT
-          else
-            echo "Error en subida: $RESPONSE"
-            exit 1
-          fi
+
+          echo "✅ File uploaded successfully! Public link: $LINK"
+          echo "link=$LINK" >> $GITHUB_OUTPUT
 
