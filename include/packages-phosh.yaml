@@ -31,6 +31,7 @@ actions:
       - portfolio-filemanager
       - powersupply-gtk
       - sound-theme-phosh
+      - ssh
       - webext-ublock-origin-firefox
 
   - action: run
