@@ -29,12 +29,12 @@ actions:
       rm -f sirros-plymouth-theme-v1.0.0.deb
       plymouth-set-default-theme -R sirros
 
-  - action: run
-    chroot: true
-    command: |
-      apt-get update
-      apt-get install -y extrepo
-      extrepo enable librewolf
-      apt-get update
-      apt-get install -y librewolf
+#  - action: run
+#    chroot: true
+#    command: |
+#      apt-get update
+#      apt-get install -y extrepo
+#      extrepo enable librewolf
+#      apt-get update
+#      apt-get install -y librewolf
 
