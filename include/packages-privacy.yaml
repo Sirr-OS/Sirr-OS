@@ -19,6 +19,7 @@ actions:
       - gnupg
       - mat2
       - onionshare
+      - carburetor
 
 
   - action: run
