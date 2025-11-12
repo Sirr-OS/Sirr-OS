@@ -21,7 +21,6 @@ actions:
       - onionshare
       - carburetor
 
-
   - action: run
     chroot: true
     command: |
