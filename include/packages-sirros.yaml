@@ -11,13 +11,12 @@ actions:
       rm -f sirros-plymouth-theme-v1.0.0.deb
       plymouth-set-default-theme -R sirros
 
-
-- action: run
-  chroot: true
-  description: Add persistent Sirr OS details
-  command: |
-    mkdir -p /etc/os-release.d
-    cat << 'EOF' > /etc/os-release.d/sirros.conf
+  - action: run
+    chroot: true
+    description: Add persistent Sirr OS details
+    command: |
+      mkdir -p /etc/os-release.d
+      cat << 'EOF' > /etc/os-release.d/sirros.conf
 NAME="SirrOS"
 PRETTY_NAME="SirrOS Phosh Edition"
 ID=sirros
