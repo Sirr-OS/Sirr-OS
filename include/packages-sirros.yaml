@@ -17,8 +17,8 @@ actions:
     command: |
       mkdir -p /etc/os-release.d
       cat << 'EOF' > /etc/os-release.d/sirros.conf
-NAME="SirrOS"
-PRETTY_NAME="SirrOS Phosh Edition"
-ID=sirros
-HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
-EOF
+      NAME="SirrOS"
+      PRETTY_NAME="SirrOS Phosh Edition"
+      ID=sirros
+      HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
+      EOF
