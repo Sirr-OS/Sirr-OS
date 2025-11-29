@@ -32,9 +32,3 @@ actions:
     description: Remove Background Blobs
     command: |
       rm /usr/share/backgrounds/gnome/blobs-d.svg /usr/share/backgrounds/gnome/blobs-l.svg	  
-
-  - action: run
-    description: Change Accent-Color
-    chroot: true
-    command: |
-      gsettings set org.gnome.desktop.interface accent-color 'blue'
