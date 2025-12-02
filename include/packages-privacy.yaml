@@ -9,17 +9,17 @@ actions:
     packages:
 #      - tor # Tor is commented out due to a conflict between carburetor and the native Tor implementation. 
 #      - torsocks
-      - carburetor
-      - dnscrypt-proxy
-      - proxychains
-      - macchanger
-      - keepassxc
-      - seahorse
-      - cryptsetup
-      - thunderbird
-      - gnupg
-      - mat2
-      - onionshare
+#      - carburetor
+#      - dnscrypt-proxy
+#      - proxychains
+#      - macchanger
+#      - keepassxc
+#      - seahorse
+#      - cryptsetup
+#      - thunderbird
+#      - gnupg
+#      - mat2
+#      - onionshare
 
   - action: run
     chroot: true
