@@ -21,11 +21,11 @@ actions:
 #      - mat2
 #      - onionshare
 
-  - action: run
-    chroot: true
-    command: |
-      apt-get update
-      apt-get install -y extrepo
-      extrepo enable librewolf
-      apt-get update
-      apt-get install -y librewolf
+#  - action: run
+#    chroot: true
+#    command: |
+#      apt-get update
+#      apt-get install -y extrepo
+#      extrepo enable librewolf
+#      apt-get update
+#      apt-get install -y librewolf

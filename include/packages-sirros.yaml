@@ -21,24 +21,24 @@ actions:
 #      apt-get install -f -y
 #      rm -f gnome-console_48.0.1-2_arm64.deb
       
-  - action: run
-    chroot: true
-    description: Divert os-release and install SirrOS details
-    command: |
+#  - action: run
+#    chroot: true
+#    description: Divert os-release and install SirrOS details
+#    command: |
       # Create a fork to protecte original file 
-      dpkg-divert --divert /usr/lib/os-release.distrib --rename /usr/lib/os-release
+#      dpkg-divert --divert /usr/lib/os-release.distrib --rename /usr/lib/os-release
 
       # Write OS-Release Custom 
-      cat << 'EOF' > /usr/lib/os-release
-      NAME="SirrOS"
-      PRETTY_NAME="SirrOS Phosh Edition"
-      ID=Sirros
-      VERSION="1.0"
-       HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
-      EOF
+#      cat << 'EOF' > /usr/lib/os-release
+#      NAME="SirrOS"
+#      PRETTY_NAME="SirrOS Phosh Edition"
+#      ID=Sirros
+#      VERSION="1.0"
+#       HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
+#      EOF
 
-  - action: run
-    chroot: true
-    description: Remove Background Blobs
-    command: |
-      rm /usr/share/backgrounds/gnome/blobs-d.svg /usr/share/backgrounds/gnome/blobs-l.svg	  
+#  - action: run
+#    chroot: true
+#    description: Remove Background Blobs
+#    command: |
+#      rm /usr/share/backgrounds/gnome/blobs-d.svg /usr/share/backgrounds/gnome/blobs-l.svg	  
