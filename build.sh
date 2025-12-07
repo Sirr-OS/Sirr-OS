@@ -8,7 +8,7 @@ if [ -z "${ARGS+x}" ]; then
     ARGS=""
 fi
 
-device="pinephonepro"
+device="pinephone"
 image="image"
 partitiontable="gpt"
 filesystem="ext4"
@@ -29,8 +29,8 @@ use_docker=
 username=
 no_blockmap=
 ssh=
-debian_suite="forky"
-suite="forky"
+debian_suite="trixie"
+suite="trixie"
 contrib=
 sign=
 miniramfs=

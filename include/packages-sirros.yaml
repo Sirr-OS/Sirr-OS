@@ -11,29 +11,20 @@ actions:
 #      rm -f sirros-plymouth-theme-v1.0.0.deb
 #      plymouth-set-default-theme -R sirros
 
-
-  - action: run
-    chroot: true
-    description: Install older KGX version from Debian Snapshot
-    command: |
-      wget https://snapshot.debian.org/archive/debian/20250503T083753Z/pool/main/g/gnome-console/gnome-console_48.0.1-2_arm64.deb
-      dpkg -i gnome-console_48.0.1-2_arm64.deb || true
-      apt-get install -f -y
-      rm -f gnome-console_48.0.1-2_arm64.deb
-     
+      
   - action: run
     chroot: true
     description: Divert os-release and install SirrOS details
     command: |
-     # Create a fork to protecte original file 
+      # Create a fork to protecte original file 
       dpkg-divert --divert /usr/lib/os-release.distrib --rename /usr/lib/os-release
 
       # Write OS-Release Custom 
       cat << 'EOF' > /usr/lib/os-release
-       NAME="SirrOS"
-       PRETTY_NAME="SirrOS Phosh Edition"
-       ID=Sirros
-       VERSION="1.0"
+      NAME="SirrOS"
+      PRETTY_NAME="SirrOS Phosh Edition"
+      ID=Sirros
+      VERSION="1.0"
        HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
       EOF
 
