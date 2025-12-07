@@ -2,7 +2,7 @@
 
 architecture: {{ $architecture }}
 
-#actions:
+actions:
 #  - action: run
 #    chroot: true
 #    command: |
@@ -30,10 +30,10 @@ architecture: {{ $architecture }}
 
       # Write OS-Release Custom 
       cat << 'EOF' > /usr/lib/os-release
-      NAME="SirrOS"
-      PRETTY_NAME="SirrOS Phosh Edition"
-      ID=Sirros
-      VERSION="1.0"
+       NAME="SirrOS"
+       PRETTY_NAME="SirrOS Phosh Edition"
+       ID=Sirros
+       VERSION="1.0"
        HOME_URL="https://github.com/commander-Z3R0/Sirr-OS"
       EOF
 
