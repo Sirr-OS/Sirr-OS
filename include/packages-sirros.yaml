@@ -9,13 +9,13 @@ actions:
       wget https://github.com/Sirr-OS/sirros-theme/releases/download/latest/theme-sirros-v1.0.0.deb
       dpkg -i theme-sirros-v1.0.0.deb 
 
-  - action: run
-    chroot: true
-    command: |
-      wget https://github.com/Sirr-OS/plymouth-theme-sirros/releases/download/main/plymouth-theme-sirros_1.1_all.deb
-      dpkg -i plymouth-theme-sirros_1.1_all.deb 
-      rm -f plymouth-theme-sirros_1.1_all.deb 
-      plymouth-set-default-theme -R sirros
+#  - action: run
+#    chroot: true
+#    command: |
+#      wget https://github.com/Sirr-OS/plymouth-theme-sirros/releases/download/main/plymouth-theme-sirros_1.1_all.deb
+#      dpkg -i plymouth-theme-sirros_1.1_all.deb 
+#      rm -f plymouth-theme-sirros_1.1_all.deb 
+#      plymouth-set-default-theme -R sirros
 
       
   - action: run
