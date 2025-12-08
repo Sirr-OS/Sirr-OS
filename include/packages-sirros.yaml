@@ -6,9 +6,15 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget https://github.com/commander-Z3R0/plymouth-theme/releases/download/latest/sirros-plymouth-theme-v1.0.0.deb
-      dpkg -i sirros-plymouth-theme-v1.0.0.deb
-      rm -f sirros-plymouth-theme-v1.0.0.deb
+      wget https://github.com/Sirr-OS/sirros-theme/releases/download/latest/theme-sirros-v1.0.0.deb
+      dpkg -i theme-sirros-v1.0.0.deb 
+
+  - action: run
+    chroot: true
+    command: |
+      wget https://github.com/Sirr-OS/plymouth-theme-sirros/releases/download/main/plymouth-theme-sirros_1.1_all.deb
+      dpkg -i plymouth-theme-sirros_1.1_all.deb 
+      rm -f plymouth-theme-sirros_1.1_all.deb 
       plymouth-set-default-theme -R sirros
 
       
