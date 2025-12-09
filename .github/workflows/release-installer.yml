@@ -1,4 +1,4 @@
-Release SirrOS (rootfs + installer)
+name: Release SirrOS (rootfs + installer)
 
 on:
   workflow_dispatch:
@@ -21,10 +21,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bmap-tools qemu-user-static
           if ! command -v docker &> /dev/null; then
-            echo "Docker is not installed, installing..."
+            echo "Docker not installed, installing..."
             curl -fsSL https://get.docker.com | sudo sh
           else
-            echo "Docker is already installed, skipping installation."
+            echo "Docker already installed."
           fi
 
       - name: Generate tag
@@ -40,10 +40,9 @@ jobs:
           arch="arm64"
           rootfs_file="rootfs-${arch}.sqfs"
 
-          # Clean previous files
           rm -f "$rootfs_file"
 
-          echo "Building ROOTFS (SirrOS real)..."
+          echo "Building ROOTFS..."
 
           docker run --rm \
             --device /dev/kvm \
@@ -58,7 +57,7 @@ jobs:
             rootfs.yaml
 
           if [ ! -f "$rootfs_file" ]; then
-            echo "❌ ERROR: rootfs not built!"
+            echo "ERROR: rootfs not built"
             exit 1
           fi
 
@@ -73,7 +72,7 @@ jobs:
 
           rm -f "${installfs_file}"
 
-          echo "Building INSTALLFS (Live Installer)..."
+          echo "Building INSTALLFS..."
 
           docker run --rm \
             --device /dev/kvm \
@@ -90,7 +89,7 @@ jobs:
             installfs.yaml
 
           if [ ! -f "$installfs_file" ]; then
-            echo "❌ ERROR: installfs not built!"
+            echo "ERROR: installfs not built"
             exit 1
           fi
 
@@ -104,7 +103,7 @@ jobs:
 
           rm -f "${image_file}.img"
 
-          echo "Creating final installer IMG..."
+          echo "Creating final installer image..."
 
           docker run --rm \
             --device /dev/kvm \
@@ -126,7 +125,7 @@ jobs:
           if [ -f "${image_file}.img" ]; then
             bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
           else
-            echo "❌ ERROR: installer image not generated!"
+            echo "ERROR: installer image not generated"
             exit 1
           fi
 
@@ -142,36 +141,33 @@ jobs:
           FILE_PATH="${image_file}.img"
 
           if [ ! -f "$FILE_PATH" ]; then
-            echo "❌ File not found: $FILE_PATH"
+            echo "File not found: $FILE_PATH"
             exit 1
           fi
 
-          echo "📡 Getting server from GoFile..."
+          echo "Getting GoFile server..."
           SERVER_JSON=$(curl -s "https://api.gofile.io/servers")
           SERVER=$(echo "$SERVER_JSON" | jq -r '.data.servers[0].name')
 
-          if [ -z "$SERVER" ] || [ "$SERVER" == "null" ]; then
-            echo "❌ Error getting server: $SERVER_JSON"
+          if [ -z "$SERVER" ] || [ "$SERVER" = "null" ]; then
+            echo "Error retrieving GoFile server"
             exit 1
           fi
 
-          echo "🖥️ Server: $SERVER"
-          echo "📤 Uploading..."
+          echo "Uploading to server: $SERVER"
 
           RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
             -H "Authorization: Bearer $GOFILE_TOKEN" \
             -F "file=@$FILE_PATH" \
             -F "folderId=$GOFILE_FOLDER_ID")
 
-          echo "📦 Response:"
           echo "$RESPONSE"
 
           LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
-          if [ -z "$LINK" ] || [ "$LINK" == "null" ]; then
-            echo "❌ Upload failed"
+          if [ -z "$LINK" ] || [ "$LINK" = "null" ]; then
+            echo "Upload failed"
             exit 1
           fi
 
-          echo "✅ Upload complete!"
-          echo "🔗 Link: $LINK"
+          echo "Upload completed"
           echo "link=$LINK" >> $GITHUB_OUTPUT
