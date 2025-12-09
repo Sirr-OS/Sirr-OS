@@ -1,0 +1,130 @@
+name: Build and Release SirrOS Installer (Directly, without rootfs)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: commander-Z3R0/Sirr-OS
+          path: Sirr-OS
+
+      - name: Install dependencies (Docker, bmap-tools, qemu-user-static)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bmap-tools qemu-user-static
+          if ! command -v docker &> /dev/null; then
+            echo "Docker is not installed, installing..."
+            curl -fsSL https://get.docker.com | sudo sh
+          else
+            echo "Docker is already installed, skipping installation."
+          fi
+
+      - name: Generate tag
+        id: tag
+        run: echo "tag_name=SirrOS-Installer-$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+
+      - name: Build SirrOS Installer image (directly)
+        run: |
+          cd Sirr-OS
+          
+          # Define variables
+          device="pinephonepro"
+          environment="phosh"
+          arch="arm64"
+          image_file="SirrOS-Installer-${device}-${environment}"
+          installfs_file="installfs-${arch}.tar.gz"
+
+          # Clean previous files
+          rm -f "${installfs_file}" "${image_file}.img"
+
+          # Build installfs
+          docker run --rm \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            --security-opt label=disable \
+            godebos/debos \
+            -t architecture:"${arch}" \
+            -t device:"${device}" \
+            -t environment:"${environment}" \
+            -t installfs:"${installfs_file}" \
+            -t nonfree:true \
+            --scratchsize=8G \
+            installfs.yaml
+
+          # Build final installer image
+          docker run --rm \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            --security-opt label=disable \
+            godebos/debos \
+            -t architecture:"${arch}" \
+            -t device:"${device}" \
+            -t environment:"${environment}" \
+            -t installfs:"${installfs_file}" \
+            -t image:"${image_file}" \
+            -t nonfree:true \
+            -t partitiontable:gpt \
+            -t filesystem:ext4 \
+            --scratchsize=10G \
+            installer.yaml
+
+          # Generate bmap (optional)
+          if [ -f "${image_file}.img" ]; then
+            bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
+          fi
+
+      - name: Upload installer image to GoFile
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+        run: |
+          cd Sirr-OS
+          device="pinephonepro"
+          environment="phosh"
+          image_file="SirrOS-Installer-${device}-${environment}"
+          FILE_PATH="${image_file}.img"
+
+          if [ ! -f "$FILE_PATH" ]; then
+            echo "❌ File not found: $FILE_PATH"
+            exit 1
+          fi
+
+          echo "📡 Getting server GoFile..."
+          SERVER_JSON=$(curl -s "https://api.gofile.io/servers")
+          SERVER=$(echo "$SERVER_JSON" | jq -r '.data.servers[0].name')
+
+          if [ -z "$SERVER" ] || [ "$SERVER" == "null" ]; then
+            echo "❌ Error getting server: $SERVER_JSON"
+            exit 1
+          fi
+
+          echo "🖥️ Server selected: $SERVER"
+          echo "📤 Uploading file to GoFile..."
+
+          RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
+            -H "Authorization: Bearer $GOFILE_TOKEN" \
+            -F "file=@$FILE_PATH" \
+            -F "folderId=$GOFILE_FOLDER_ID")
+
+          echo "📦 Response completed:"
+          echo "$RESPONSE"
+
+          LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+          if [ -z "$LINK" ] || [ "$LINK" == "null" ]; then
+            echo "❌ Error on a upload"
+            exit 1
+          fi
+
+          echo "✅ File uploaded correctly!"
+          echo "🔗 Public link: $LINK"
+          echo "link=$LINK" >> $GITHUB_OUTPUT
