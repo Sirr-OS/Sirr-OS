@@ -1,4 +1,4 @@
-name: Build and Release SirrOS Installer (Directly, without rootfs)
+Release SirrOS (rootfs + installer)
 
 on:
   workflow_dispatch:
@@ -31,21 +31,50 @@ jobs:
         id: tag
         run: echo "tag_name=SirrOS-Installer-$(date +%Y%m%d)" >> $GITHUB_OUTPUT
 
-      - name: Build SirrOS Installer image (directly)
+      - name: Build SirrOS rootfs
         run: |
           cd Sirr-OS
-          
-          # Define variables
+
           device="pinephonepro"
           environment="phosh"
           arch="arm64"
-          image_file="SirrOS-Installer-${device}-${environment}"
-          installfs_file="installfs-${arch}.tar.gz"
+          rootfs_file="rootfs-${arch}.sqfs"
 
           # Clean previous files
-          rm -f "${installfs_file}" "${image_file}.img"
+          rm -f "$rootfs_file"
 
-          # Build installfs
+          echo "Building ROOTFS (SirrOS real)..."
+
+          docker run --rm \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            --security-opt label=disable \
+            godebos/debos \
+            -t architecture:"${arch}" \
+            -t device:"${device}" \
+            -t environment:"${environment}" \
+            -t nonfree:true \
+            rootfs.yaml
+
+          if [ ! -f "$rootfs_file" ]; then
+            echo "❌ ERROR: rootfs not built!"
+            exit 1
+          fi
+
+      - name: Build SirrOS installfs
+        run: |
+          cd Sirr-OS
+
+          device="pinephonepro"
+          environment="phosh"
+          arch="arm64"
+          installfs_file="installfs-${arch}.tar.gz"
+
+          rm -f "${installfs_file}"
+
+          echo "Building INSTALLFS (Live Installer)..."
+
           docker run --rm \
             --device /dev/kvm \
             -v "$PWD":/work \
@@ -60,7 +89,23 @@ jobs:
             --scratchsize=8G \
             installfs.yaml
 
-          # Build final installer image
+          if [ ! -f "$installfs_file" ]; then
+            echo "❌ ERROR: installfs not built!"
+            exit 1
+          fi
+
+      - name: Build final SirrOS Installer image
+        run: |
+          cd Sirr-OS
+          device="pinephonepro"
+          environment="phosh"
+          arch="arm64"
+          image_file="SirrOS-Installer-${device}-${environment}"
+
+          rm -f "${image_file}.img"
+
+          echo "Creating final installer IMG..."
+
           docker run --rm \
             --device /dev/kvm \
             -v "$PWD":/work \
@@ -70,7 +115,7 @@ jobs:
             -t architecture:"${arch}" \
             -t device:"${device}" \
             -t environment:"${environment}" \
-            -t installfs:"${installfs_file}" \
+            -t installfs:"installfs-${arch}.tar.gz" \
             -t image:"${image_file}" \
             -t nonfree:true \
             -t partitiontable:gpt \
@@ -78,12 +123,14 @@ jobs:
             --scratchsize=10G \
             installer.yaml
 
-          # Generate bmap (optional)
           if [ -f "${image_file}.img" ]; then
             bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
+          else
+            echo "❌ ERROR: installer image not generated!"
+            exit 1
           fi
 
-      - name: Upload installer image to GoFile
+      - name: Upload installer to GoFile
         env:
           GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
           GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
@@ -99,7 +146,7 @@ jobs:
             exit 1
           fi
 
-          echo "📡 Getting server GoFile..."
+          echo "📡 Getting server from GoFile..."
           SERVER_JSON=$(curl -s "https://api.gofile.io/servers")
           SERVER=$(echo "$SERVER_JSON" | jq -r '.data.servers[0].name')
 
@@ -108,23 +155,23 @@ jobs:
             exit 1
           fi
 
-          echo "🖥️ Server selected: $SERVER"
-          echo "📤 Uploading file to GoFile..."
+          echo "🖥️ Server: $SERVER"
+          echo "📤 Uploading..."
 
           RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
             -H "Authorization: Bearer $GOFILE_TOKEN" \
             -F "file=@$FILE_PATH" \
             -F "folderId=$GOFILE_FOLDER_ID")
 
-          echo "📦 Response completed:"
+          echo "📦 Response:"
           echo "$RESPONSE"
 
           LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
           if [ -z "$LINK" ] || [ "$LINK" == "null" ]; then
-            echo "❌ Error on a upload"
+            echo "❌ Upload failed"
             exit 1
           fi
 
-          echo "✅ File uploaded correctly!"
-          echo "🔗 Public link: $LINK"
+          echo "✅ Upload complete!"
+          echo "🔗 Link: $LINK"
           echo "link=$LINK" >> $GITHUB_OUTPUT

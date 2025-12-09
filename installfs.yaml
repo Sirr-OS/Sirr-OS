@@ -53,12 +53,6 @@ actions:
     chroot: true
     script: scripts/setup-user.sh {{ $username }} {{ $password }}
 
-  - action: recipe
-    recipe: include/packages-privacy.yaml
-
-  - action: recipe
-    recipe: include/packages-sirros.yaml
-
   - action: run
     description: Set up installer
     chroot: true
