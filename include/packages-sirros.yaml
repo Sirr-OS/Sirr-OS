@@ -3,12 +3,6 @@
 architecture: {{ $architecture }}
 
 actions:
-#  - action: run
-#    chroot: true
-#    command: |
-#      wget https://github.com/Sirr-OS/sirros-theme/releases/download/latest/theme-sirros-v1.0.0.deb
-#      dpkg -i theme-sirros-v1.0.0.deb 
-
   - action: run
     chroot: true
     command: |
