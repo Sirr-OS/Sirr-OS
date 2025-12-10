@@ -26,8 +26,6 @@ jobs:
           fi
 
       - name: Build LUKS encrypted image
-        env:
-          LUKS_PASS: ${{ secrets.LUKS_PASS }}
         run: |
           cd Sirr-OS
 
@@ -41,6 +39,7 @@ jobs:
 
           rm -f "${rootfs_file}" "${installfs_file}"
 
+          # Build rootfs
           docker run --rm \
             --device /dev/kvm \
             -v "$PWD":/work \
@@ -54,6 +53,7 @@ jobs:
             --scratchsize=8G \
             rootfs.yaml
 
+          # Build final encrypted image using image.yaml (LUKS password is in image.yaml)
           docker run --rm \
             --device /dev/kvm \
             -v "$PWD":/work \
@@ -68,8 +68,6 @@ jobs:
             -t nonfree:true \
             -t partitiontable:gpt \
             -t filesystem:ext4 \
-            -t crypt_root:true \
-            -t crypt_password:${LUKS_PASS} \
             -t bootonroot:false \
             --scratchsize=10G \
             image.yaml
@@ -83,7 +81,6 @@ jobs:
           environment="phosh"
 
           image_file="SirrOS-${device}-${environment}-encrypted"
-
           sha256sum "${image_file}.img" | tee "${image_file}.sha256"
 
       - name: Upload ENCRYPTED image to GoFile
@@ -94,7 +91,6 @@ jobs:
           cd Sirr-OS
           device="pinephonepro"
           environment="phosh"
-
           image_file="SirrOS-${device}-${environment}-encrypted"
           FILE_PATH="${image_file}.img"
 
@@ -118,7 +114,6 @@ jobs:
           cd Sirr-OS
           device="pinephonepro"
           environment="phosh"
-
           hash_file="SirrOS-${device}-${environment}-encrypted.sha256"
 
           SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
