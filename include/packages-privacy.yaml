@@ -7,7 +7,7 @@ actions:
     recommends: true
     description: Install Privacy packages
     packages:
-      - tor # Tor is commented out due to a conflict between carburetor and the native Tor implementation. 
+      - tor
       - torsocks
       - carburetor
       - dnscrypt-proxy
@@ -20,6 +20,9 @@ actions:
       - gnupg
       - mat2
       - onionshare
+      - opensnitch
+      - gtkhash
+
 
   - action: run
     chroot: true

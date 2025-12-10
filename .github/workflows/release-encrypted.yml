@@ -1,0 +1,133 @@
+name: Build and Release SirrOS (Encrypted LUKS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-luks:
+    name: Build LUKS Encrypted Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: commander-Z3R0/Sirr-OS
+          path: Sirr-OS
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bmap-tools qemu-user-static jq
+          if ! command -v docker &> /dev/null; then
+            curl -fsSL https://get.docker.com | sudo sh
+          fi
+
+      - name: Build LUKS encrypted image
+        env:
+          LUKS_PASS: ${{ secrets.LUKS_PASS }}
+        run: |
+          cd Sirr-OS
+
+          device="pinephonepro"
+          environment="phosh"
+          arch="arm64"
+
+          image_file="SirrOS-${device}-${environment}-encrypted"
+          rootfs_file="rootfs-${arch}-${environment}-nonfree.tar.gz"
+          installfs_file="installfs-${arch}.tar.gz"
+
+          rm -f "${rootfs_file}" "${installfs_file}"
+
+          docker run --rm \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            godebos/debos \
+            -t architecture:${arch} \
+            -t device:${device} \
+            -t environment:${environment} \
+            -t rootfs:${rootfs_file} \
+            -t nonfree:true \
+            --scratchsize=8G \
+            rootfs.yaml
+
+          docker run --rm \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            godebos/debos \
+            -t architecture:${arch} \
+            -t device:${device} \
+            -t environment:${environment} \
+            -t rootfs:${rootfs_file} \
+            -t installfs:${installfs_file} \
+            -t image:${image_file} \
+            -t nonfree:true \
+            -t partitiontable:gpt \
+            -t filesystem:ext4 \
+            -t crypt_root:true \
+            -t crypt_password:${LUKS_PASS} \
+            -t bootonroot:false \
+            --scratchsize=10G \
+            image.yaml
+
+          bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
+
+      - name: Generate SHA256 checksum
+        run: |
+          cd Sirr-OS
+          device="pinephonepro"
+          environment="phosh"
+
+          image_file="SirrOS-${device}-${environment}-encrypted"
+
+          sha256sum "${image_file}.img" | tee "${image_file}.sha256"
+
+      - name: Upload ENCRYPTED image to GoFile
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+        run: |
+          cd Sirr-OS
+          device="pinephonepro"
+          environment="phosh"
+
+          image_file="SirrOS-${device}-${environment}-encrypted"
+          FILE_PATH="${image_file}.img"
+
+          echo "📡 Getting GoFile server..."
+          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+
+          echo "📤 Uploading encrypted image..."
+          RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
+            -H "Authorization: Bearer $GOFILE_TOKEN" \
+            -F "file=@$FILE_PATH" \
+            -F "folderId=$GOFILE_FOLDER_ID")
+
+          echo "Image upload response:"
+          echo "$RESPONSE"
+
+      - name: Upload SHA256 file to GoFile
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+        run: |
+          cd Sirr-OS
+          device="pinephonepro"
+          environment="phosh"
+
+          hash_file="SirrOS-${device}-${environment}-encrypted.sha256"
+
+          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+
+          echo "📤 Uploading checksum..."
+          RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
+            -H "Authorization: Bearer $GOFILE_TOKEN" \
+            -F "file=@${hash_file}" \
+            -F "folderId=$GOFILE_FOLDER_ID")
+
+          echo "Checksum upload response:"
+          echo "$RESPONSE"
