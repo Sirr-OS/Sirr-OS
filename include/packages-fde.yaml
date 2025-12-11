@@ -7,4 +7,7 @@ actions:
     recommends: false
     description: Install packages for full disk encryption
     packages:
+      - cryptsetup
+      - cryptsetup-initramfs
+      - initramfs-tools
       - unl0kr
