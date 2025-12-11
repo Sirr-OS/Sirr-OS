@@ -45,6 +45,17 @@ actions:
 {{ if eq $crypt_root "true" }}
     setup-fstab: false
 
+  - action: apt
+    recommends: false
+    description: Install cryptsetup
+    packages:
+      - cryptsetup
+      - cryptsetup-initramfs
+      - initramfs-tools
+      - systemd
+      - systemd-cryptsetup
+      - unl0kr
+
   - action: run
     description: Encrypt root filesystem
     label: setup-luks
