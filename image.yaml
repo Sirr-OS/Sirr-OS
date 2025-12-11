@@ -51,8 +51,6 @@ actions:
       - cryptsetup
       - cryptsetup-initramfs
       - initramfs-tools
-      - systemd
-      - systemd-cryptsetup
       - unl0kr
 
   - action: run
