@@ -23,14 +23,6 @@ actions:
   - action: unpack
     file: {{ $rootfs }}
     
-  # Install cryptsetup in the fakemachine host (required for setup-luks.sh)
-  - action: apt
-    description: Install host-side cryptsetup for LUKS encryption
-    chroot: false
-    packages:
-      - cryptsetup
-      - util-linux
-
 {{ if eq $nonfree "true" }}
   - action: run
     description: Enable non-free-firmware repos
@@ -64,6 +56,8 @@ actions:
   - action: run
     description: Encrypt root filesystem
     label: setup-luks
+    raw: true
+    chroot: false
     script: scripts/setup-luks.sh {{ $crypt_password }} {{ $bootonroot }}
 
   - action: recipe
