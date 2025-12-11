@@ -46,7 +46,6 @@ actions:
     setup-fstab: false
 
   - action: apt
-    recommends: false
     description: Install cryptsetup
     packages:
       - cryptsetup
