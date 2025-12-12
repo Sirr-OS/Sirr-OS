@@ -22,7 +22,14 @@ architecture: {{ $architecture }}
 actions:
   - action: unpack
     file: {{ $rootfs }}
-    
+
+  - action: apt
+    description: Install cryptsetup in fakemachine host
+    chroot: false
+    packages:
+      - cryptsetup
+      - util-linux
+
 {{ if eq $nonfree "true" }}
   - action: run
     description: Enable non-free-firmware repos
@@ -58,6 +65,7 @@ actions:
     label: setup-luks
     raw: true
     chroot: false
+    mount-dev: true
     script: scripts/setup-luks.sh {{ $crypt_password }} {{ $bootonroot }}
 
   - action: recipe
