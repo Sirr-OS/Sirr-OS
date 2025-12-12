@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Limited path
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin"
+
 set -e
 
 PASSWORD="${1}"
