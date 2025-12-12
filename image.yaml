@@ -27,6 +27,7 @@ actions:
     description: Install cryptsetup in fakemachine host
     chroot: false
     packages:
+      - cryptsetup
       - cryptsetup-bin
       - util-linux
 
