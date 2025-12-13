@@ -23,14 +23,6 @@ actions:
   - action: unpack
     file: {{ $rootfs }}
 
-  - action: apt
-    description: Install cryptsetup in fakemachine host
-    chroot: false
-    packages:
-      - cryptsetup
-      - cryptsetup-bin
-      - util-linux
-
 {{ if eq $nonfree "true" }}
   - action: run
     description: Enable non-free-firmware repos
