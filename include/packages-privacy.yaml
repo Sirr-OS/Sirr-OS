@@ -20,7 +20,7 @@ actions:
       - gnupg
       - mat2
       - onionshare
-      - opensnitch
+#      - opensnitch
       - gtkhash
 
 
