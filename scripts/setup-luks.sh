@@ -46,7 +46,7 @@ echo "${PASSWORD}" | cryptsetup reencrypt ${TARGET_DISK}${PART}${PARTNR} root \
   --pbkdf argon2id \
   --pbkdf-memory 262144 \
   --pbkdf-parallel 2 \
-  --pbkdf-time 2000
+  --iter-time 2000
 
 echo "Resize filesystem to fill up partition"
 if [ "${FILESYSTEM}" = 'ext4' ]
