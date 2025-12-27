@@ -30,6 +30,8 @@ actions:
       - phrog
       - portfolio-filemanager
       - powersupply-gtk
+      - polkitd
+      - pkexec
       - sound-theme-phosh
       - ssh
       - webext-ublock-origin-firefox
