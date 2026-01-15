@@ -1,7 +1,7 @@
 # SirrOS
 [![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=102)](https://github.com/commander-z3r0?tab=repositories)
 
-SirrOS is a privacy-focused Linux distribution based on Mobian, designed for users who value privacy, anonymity, and digital freedom on mobile devices. Sirr — meaning "secret" in Arabic — enhances Mobian's core with additional tools tailored for secure and anonymous online communication.
+**[SirrOS](https://sirr-os.github.io/)** is a privacy-focused Linux distribution based on Mobian, designed for users who value privacy, anonymity, and digital freedom on mobile devices. Sirr — meaning "secret" in Arabic — enhances Mobian's core with additional tools tailored for secure and anonymous online communication.
 
 ## Included Tools
 
