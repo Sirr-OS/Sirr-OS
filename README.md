@@ -3,7 +3,7 @@
 
 SirrOS is a privacy-focused Linux distribution based on Mobian, designed for users who value privacy, anonymity, and digital freedom on mobile devices. Sirr — meaning "secret" in Arabic — enhances Mobian's core with additional tools tailored for secure and anonymous online communication.
 
-## 🛠️ Included Tools
+## Included Tools
 
 | Tool           | Purpose                                    |
 |----------------|--------------------------------------------|
