@@ -43,9 +43,9 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/Sirr-OS/SirrAT/releases/download/v1.0.0/SirrAT_v1.0.0_arm64.deb
-      dpkg -i SirrAT_v1.0.0_arm64.deb
-      rm -f SirrAT_v1.0.0_arm64.deb
+      wget  https://github.com/Sirr-OS/SirrAT/releases/download/v1.0.1/SirrAT_v1.0.1_arm64.deb
+      dpkg -i SirrAT_v1.0.1_arm64.deb
+      rm -f SirrAT_v1.0.1_arm64.deb
 
   - action: run
     chroot: true
