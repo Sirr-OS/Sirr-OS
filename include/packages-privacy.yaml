@@ -50,6 +50,6 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/Sirr-OS/SirrLuks/releases/download/v1.0.0/SirrLuks_v1.0.0_arm64.deb
-      dpkg -i SirrLuks_v1.0.0_arm64.deb
-      rm -f SirrLuks_v1.0.0_arm64.deb
+      wget  https://github.com/Sirr-OS/SirrLuks/releases/download/v1.0.1/SirrLuks_v1.0.1_arm64.deb
+      dpkg -i SirrLuks_v1.0.1_arm64.deb
+      rm -f SirrLuks_v1.0.1_arm64.deb
