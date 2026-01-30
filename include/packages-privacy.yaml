@@ -36,9 +36,9 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/commander-Z3R0/atinout/releases/download/V0.9.1/atinout-V0.9.1-arm64.deb
-      dpkg -i atinout-V0.9.1-arm64.deb
-      rm -f atinout-V0.9.1-arm64.deb
+      wget  https://github.com/commander-Z3R0/atinout/releases/download/V0.9.1/atinout_0.9.1_arm64.deb
+      dpkg -i atinout_0.9.1_arm64.deb
+      rm -f atinout_0.9.1_arm64.deb
 
   - action: run
     chroot: true
