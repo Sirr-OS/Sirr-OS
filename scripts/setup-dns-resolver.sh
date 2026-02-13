@@ -3,29 +3,32 @@ set -e
 
 echo "[Sirr OS] Configuring dnscrypt-proxy..."
 
-# Stop and fully disable systemd-resolved
+# If systemd is not PID 1 (e.g. chroot), skip runtime actions
+if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
+    echo "[Sirr OS] systemd not running (build environment). Skipping runtime service control."
+    exit 0
+fi
+
+# Disable and mask systemd-resolved permanently
 if systemctl list-unit-files | grep -q systemd-resolved; then
     echo "[Sirr OS] Disabling systemd-resolved..."
 
     systemctl stop systemd-resolved.service 2>/dev/null || true
-    systemctl stop systemd-resolved.socket 2>/dev/null || true
-    systemctl stop systemd-resolved-varlink.socket 2>/dev/null || true
-    systemctl stop systemd-resolved-monitor.socket 2>/dev/null || true
-
     systemctl disable systemd-resolved.service 2>/dev/null || true
     systemctl mask systemd-resolved.service 2>/dev/null || true
+
+    systemctl stop systemd-resolved.socket 2>/dev/null || true
     systemctl mask systemd-resolved.socket 2>/dev/null || true
-    systemctl mask systemd-resolved-varlink.socket 2>/dev/null || true
-    systemctl mask systemd-resolved-monitor.socket 2>/dev/null || true
 fi
 
+# Enable dnscrypt-proxy permanently
+echo "[Sirr OS] Enabling dnscrypt-proxy..."
 
-# Reload systemd state
-systemctl daemon-reexec
+systemctl enable dnscrypt-proxy.service
+systemctl restart dnscrypt-proxy.service
 
-# Restart services
-systemctl restart dnscrypt-proxy
+# Restart NetworkManager if present
 systemctl restart NetworkManager 2>/dev/null || true
 
-echo "[Sirr OS] dnscrypt-proxy setup complete."
-echo "[Sirr OS] All DNS traffic now goes through 127.0.0.1:53"
+echo "[Sirr OS] dnscrypt-proxy is now permanently enabled."
+echo "[Sirr OS] DNS traffic forced to 127.0.0.1:53"
