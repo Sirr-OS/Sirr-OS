@@ -97,6 +97,11 @@ actions:
   - action: recipe
     recipe: include/packages-privacy.yaml
 
+  - action: run
+    description: Set up dnscrypt as resolver
+    chroot: true
+    script: scripts/setup-dns-resolver.sh
+
   - action: recipe
     recipe: include/packages-sirros.yaml
 
