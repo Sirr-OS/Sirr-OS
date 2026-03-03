@@ -8,6 +8,22 @@ WANTS_DIR="$SYSTEMD_DIR/multi-user.target.wants"
 
 mkdir -p "$WANTS_DIR"
 
+
+# ---------------------------------------
+# Remove /etc/resolv.conf(linked)
+# ---------------------------------------
+
+rm -f /etc/resolv.conf
+
+
+# ---------------------------------------
+# Create /etc/resolv.conf
+# ---------------------------------------
+
+printf 'nameserver 127.0.0.1\noptions edns0\n' | tee /etc/resolv.conf
+chmod 644 /etc/resolv.conf
+
+
 # ---------------------------------------
 # Mask systemd-resolved permanently
 # ---------------------------------------
