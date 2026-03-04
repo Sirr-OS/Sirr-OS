@@ -7,12 +7,11 @@
 
 | Tool           | Purpose                                    |
 |----------------|--------------------------------------------|
-| tor            | Anonymous web browsing and routing         |
+| Carburetor     | Anonymous web browsing and routing         |
 | torsocks       | Redirect applications through Tor          |
 | dnscrypt-proxy | Encrypt and secure DNS queries             |
 | proxychains    | Force any TCP connection through proxy (Tor, SOCKS, etc.) |
 | macchanger     | Spoof MAC address                           |
-| keepassxc      | Secure password management                  |
 | seahorse      | GUI for managing encryption keys and passwords |
 | cryptsetup    | Disk encryption management (LUKS)           |
 | thunderbird   | Email client with encryption support        |
@@ -27,16 +26,17 @@ SirrOS merges Mobian’s base with potent privacy and anonymity tools, providing
 ## Installation
 
 1. Download the latest SirrOS image from the official repository.
-2. Flash it to your supported device (e.g., PinePhone) using tools like `dd` or Etcher.
+2. Flash it to your supported device(EMMC or SD cardà using tools like `dd` or Etcher.
 3. Boot the device and follow the two-boot methode.
-4. Enjoy a privacy-centered mobile experience.
+4. **Set date/time graphically**: Go to Settings > System > Date & Time.
+5. **Restart DNSCrypt-proxy**: Open terminal and run ``sudo systemctl restart dnscrypt-proxy``. Verify with ping google.com
+6. Enjoy a privacy-centered mobile experience.
 
 ## Usage
 
 - Use Tor and torsocks to anonymize network traffic.
 - Manage encrypted storage and keys safely with cryptsetup and seahorse.
 - Stay protected online with DNS encryption via dnscrypt-proxy.
-- Use KeepassXC to securely store and organize passwords.
 - Share files anonymously with onionshare.
 - Regularly remove file metadata with mat2 for sensitive documents.
   
