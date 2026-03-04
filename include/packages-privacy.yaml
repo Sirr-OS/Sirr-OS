@@ -82,8 +82,6 @@ actions:
       ReadWritePaths=/var/cache/dnscrypt-proxy
       EOF
 
-      # Reload systemd
-      systemctl daemon-reload
 
   - action: run
     chroot: true
