@@ -54,6 +54,40 @@ actions:
       dpkg -i SirrLuks_v1.0.1_arm64.deb
       rm -f SirrLuks_v1.0.1_arm64.deb
 
+# ------------------------------------
+# Configuration Dnscrypt-proxy (Temp)
+# ------------------------------------
+  - action: run
+    chroot: true
+    command: |
+      useradd -r -s /usr/sbin/nologin -d /var/lib/dnscrypt-proxy dnscrypt
+
+  - action: overlay
+    source: overlay-dnscrypt-proxy
+    destination: /
+
+  - action: run
+    chroot: true
+    command: |
+      mkdir -p /etc/systemd/system/dnscrypt-proxy.service.d
+      cat > /etc/systemd/system/dnscrypt-proxy.service.d/override.conf <<EOF
+      [Service]
+      User=dnscrypt
+      Group=dnscrypt
+      CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+      AmbientCapabilities=CAP_NET_BIND_SERVICE
+      NoNewPrivileges=yes
+      ProtectSystem=full
+      ProtectHome=true
+      PrivateTmp=true
+      PrivateDevices=true
+      ProtectKernelTunables=true
+      ProtectControlGroups=true
+      ReadWritePaths=/var/cache/dnscrypt-proxy
+      EOF
+
+      # Reload systemd
+      systemctl daemon-reload
 
   - action: run
     chroot: true
