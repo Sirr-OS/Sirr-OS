@@ -62,10 +62,6 @@ actions:
     command: |
       useradd -r -s /usr/sbin/nologin -d /var/lib/dnscrypt-proxy dnscrypt
 
-  - action: overlay
-    source: overlay-dnscrypt-proxy
-    destination: /
-
   - action: run
     chroot: true
     command: |
