@@ -50,6 +50,13 @@ actions:
   - action: run
     chroot: true
     command: |
+      wget https://github.com/Sirr-OS/phosh-pam-duress/releases/download/latest/phosh-pam-duress_1.0.0_arm64.deb
+      dpkg -i phosh-pam-duress_1.0.0_arm64.deb
+      rm -f phosh-pam-duress_1.0.0_arm64.deb
+
+  - action: run
+    chroot: true
+    command: |
       wget  https://github.com/Sirr-OS/SirrLuks/releases/download/v1.0.1/SirrLuks_v1.0.1_arm64.deb
       dpkg -i SirrLuks_v1.0.1_arm64.deb
       rm -f SirrLuks_v1.0.1_arm64.deb
