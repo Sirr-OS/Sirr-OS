@@ -22,6 +22,11 @@ actions:
   - action: recipe
     recipe: include/packages-fde.yaml
 
+  - action: run
+    description: Try to install rockchip kernel (Try to fix temporaly)
+    chroot: true
+    command: apt-get install -y linux-image-6.12-rockchip || true
+
   - action: recipe
     recipe: devices/{{ $family }}/packages-base.yaml
     variables:
