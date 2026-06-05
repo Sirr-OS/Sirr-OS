@@ -40,14 +40,14 @@ echo "${PASSWORD}" | cryptsetup reencrypt ${TARGET_DISK}${PART}${PARTNR} root \
   --new \
   --reduce-device-size 32M \
   --type luks2 \
-  --cipher aes-xts-essiv:sha256 \
+  --cipher aes-xts-plain64 \
   --key-size 512 \
   --hash sha512 \
   --pbkdf argon2id \
-  --pbkdf-memory 262144 \
-  --pbkdf-parallel 2 \
-  --iter-time 2000
-
+  --pbkdf-memory 3145728 \
+  --pbkdf-parallel 4 \
+  --iter-time 5000
+  
 echo "Resize filesystem to fill up partition"
 if [ "${FILESYSTEM}" = 'ext4' ]
 then
