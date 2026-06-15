@@ -19,7 +19,6 @@ actions:
       - thunderbird
       - gnupg
       - mat2
-      - onionshare
 #      - opensnitch ## Good firewall GUI but can cause some crashes.
       - gtkhash
 
