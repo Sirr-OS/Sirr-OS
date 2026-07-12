@@ -13,12 +13,13 @@ actions:
       - dnscrypt-proxy
       - proxychains
       - macchanger
-#      - keepassxc
+      - keepassxc
       - seahorse
       - cryptsetup
       - thunderbird
       - gnupg
       - mat2
+      - onionshare
 #      - opensnitch ## Good firewall GUI but can cause some crashes.
       - gtkhash
 
