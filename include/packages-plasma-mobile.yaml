@@ -19,6 +19,16 @@ actions:
       - qmlkonsole
       - tokodon
       - webext-ublock-origin-firefox
+      - iproute2
+      - wget
+      - nano
+      - chatty
+      - endeavour
+      - powersupply-gtk
+      - polkitd
+      - pkexec
+      - ssh
+
 
 # HACK: workaround to fix https://salsa.debian.org/Mobian-team/mobian-recipes/-/issues/36
 # seems like plasma-mobile.service gets enabled even if dh_installsystemd should forbid that
