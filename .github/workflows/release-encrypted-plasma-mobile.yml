@@ -46,7 +46,7 @@ jobs:
             -t environment:${environment} \
             -t rootfs:${rootfs_file} \
             -t nonfree:true \
-            --scratchsize=8G \
+            --scratchsize=12G \
             rootfs.yaml
 
           docker run --rm \
@@ -64,7 +64,7 @@ jobs:
             -t crypt_password:s1rr0s \
             -t bootonroot:false \
             -t nonfree:true \
-            --scratchsize=10G \
+            --scratchsize=16G \
             image.yaml
 
           bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
