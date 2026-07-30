@@ -1,4 +1,4 @@
-name: Build and Release SirrOS (Encrypted LUKS)
+name: Build and Release SirrOS Plasma Mobile (Encrypted LUKS)
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ jobs:
       - name: Build encrypted image
         run: |
           device="pinephonepro"
-          environment="phosh"
+          environment="plasma-mobile"
           arch="arm64"
 
           image_file="SirrOS-${device}-${environment}-encrypted"

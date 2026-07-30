@@ -1,0 +1,130 @@
+name: Build and Release SirrOS Phosh (Encrypted LUKS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-luks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bmap-tools jq
+
+      - name: Build custom debos image (with cryptsetup)
+        run: |
+          docker build \
+            -t sirros/debos-cryptsetup \
+            -f Docker/Dockerfile.debos \
+            .
+
+      - name: Build encrypted image
+        run: |
+          device="pinephonepro"
+          environment="phosh"
+          arch="arm64"
+
+          image_file="SirrOS-${device}-${environment}-encrypted"
+          rootfs_file="rootfs-${arch}-${environment}-nonfree.tar.gz"
+
+          docker run --rm \
+            --privileged \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            sirros/debos-cryptsetup \
+            -t architecture:${arch} \
+            -t device:${device} \
+            -t environment:${environment} \
+            -t rootfs:${rootfs_file} \
+            -t nonfree:true \
+            --scratchsize=8G \
+            rootfs.yaml
+
+          docker run --rm \
+            --privileged \
+            --device /dev/kvm \
+            -v "$PWD":/work \
+            -w /work \
+            sirros/debos-cryptsetup \
+            -t architecture:${arch} \
+            -t device:${device} \
+            -t environment:${environment} \
+            -t rootfs:${rootfs_file} \
+            -t image:${image_file} \
+            -t crypt_root:true \
+            -t crypt_password:s1rr0s \
+            -t bootonroot:false \
+            -t nonfree:true \
+            --scratchsize=10G \
+            image.yaml
+
+          bmaptool create "${image_file}.img" > "${image_file}.img.bmap"
+
+      - name: Generate SHA256
+        run: |
+          image="SirrOS-pinephonepro-phosh-encrypted.img"
+          sha256sum "$image" | tee "$image.sha256"
+
+      - name: Upload encrypted image to GoFile
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
+        run: |
+          device="pinephonepro"
+          environment="phosh"
+          image_file="SirrOS-${device}-${environment}-encrypted"
+
+          FILE_IMG="${image_file}.img"
+          FILE_SHA="${image_file}.img.sha256"
+          FILE_BMAP="${image_file}.img.bmap"
+
+          for f in "$FILE_IMG" "$FILE_SHA" "$FILE_BMAP"; do
+            if [ ! -f "$f" ]; then
+              echo "❌ File not found: $f"
+              exit 1
+            fi
+          done
+
+          echo "📡 Getting GoFile server..."
+          SERVER_JSON=$(curl -s "https://api.gofile.io/servers")
+          SERVER=$(echo "$SERVER_JSON" | jq -r '.data.servers[0].name')
+
+          if [ -z "$SERVER" ] || [ "$SERVER" = "null" ]; then
+            echo "❌ Failed to get GoFile server"
+            echo "$SERVER_JSON"
+            exit 1
+          fi
+
+          echo "🖥️ Using server: $SERVER"
+
+          upload() {
+            local file="$1"
+            echo "📤 Uploading $file"
+            RESPONSE=$(curl -s -X POST "https://${SERVER}.gofile.io/uploadFile" \
+              -H "Authorization: Bearer $GOFILE_TOKEN" \
+              -F "file=@${file}" \
+              -F "folderId=${GOFILE_FOLDER_ID}")
+
+            LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+            if [ -z "$LINK" ] || [ "$LINK" = "null" ]; then
+              echo "❌ Upload failed for $file"
+              echo "$RESPONSE"
+              exit 1
+            fi
+
+            echo "✅ Uploaded $file"
+            echo "🔗 $LINK"
+          }
+
+          upload "$FILE_IMG"
+          upload "$FILE_SHA"
+          upload "$FILE_BMAP"
