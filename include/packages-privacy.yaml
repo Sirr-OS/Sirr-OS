@@ -62,7 +62,7 @@ actions:
       rm -f SirrLuks_v1.0.1_arm64.deb
 
 # ------------------------------------
-# Configuration Dnscrypt-proxy (Temp)
+# Configuration Dnscrypt-proxy
 # ------------------------------------
   - action: run
     chroot: true

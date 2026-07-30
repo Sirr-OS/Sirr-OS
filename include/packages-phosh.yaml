@@ -40,3 +40,11 @@ actions:
     description: Disable getty in the Phosh environment
     chroot: true
     command: systemctl disable getty@.service
+
+  - action: run
+    chroot: true
+    description: Replace Background Blobs 
+    command: |
+      curl -L -o /usr/share/backgrounds/gnome/blobs-d.svg https://raw.githubusercontent.com/commander-Z3R0/repository-assets/refs/heads/main/Sirr-OS/background/wallpaper_sirros.svg
+      curl -L -o /usr/share/backgrounds/gnome/blobs-l.svg https://raw.githubusercontent.com/commander-Z3R0/repository-assets/refs/heads/main/Sirr-OS/background/wallpaper_sirros.svg
+
