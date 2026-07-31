@@ -71,7 +71,7 @@ jobs:
 
       - name: Generate SHA256
         run: |
-          image="SirrOS-pinephonepro-phosh-encrypted.img"
+          image="SirrOS-pinephonepro-plasma-mobile-encrypted.img"
           sha256sum "$image" | tee "$image.sha256"
 
       - name: Upload encrypted image to GoFile
@@ -80,7 +80,7 @@ jobs:
           GOFILE_FOLDER_ID: ${{ secrets.GOFILE_FOLDER_ID }}
         run: |
           device="pinephonepro"
-          environment="phosh"
+          environment="plasma-mobile"
           image_file="SirrOS-${device}-${environment}-encrypted"
 
           FILE_IMG="${image_file}.img"
