@@ -105,5 +105,10 @@ actions:
   - action: recipe
     recipe: include/packages-sirros.yaml
 
+  - action: run
+    description: Removes the expiration date from the _greetd user account (Try to fix temporaly)
+    chroot: true
+    command: chage -E -1 _greetd
+
   - action: pack
     file: {{ $rootfs }}
