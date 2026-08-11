@@ -26,7 +26,7 @@ SirrOS merges Mobian’s base with potent privacy and anonymity tools, providing
 ## Installation
 
 1. Download the latest SirrOS image from the official repository.
-2. Flash it to your supported device(EMMC or SD cardà using tools like `dd` or Etcher.
+2. Flash it to your supported device(EMMC or SD card using tools like `dd` or Etcher.
 3. Boot the device and follow the two-boot methode.
 4. **Set date/time graphically**: Go to Settings > System > Date & Time.
 5. **Restart DNSCrypt-proxy**: Open terminal and run ``sudo systemctl restart dnscrypt-proxy``. Verify with ping google.com
