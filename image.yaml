@@ -111,6 +111,16 @@ actions:
 # When building with fakemachine, the initrd crypttab is empty
 # We need this additional step which fully mounts /dev so cryptsetup
 # can create a proper crypttab
+  - action: overlay
+    description: Install first-boot LUKS re-key hook
+    source: overlays/initramfs/
+    destination: /etc/initramfs-tools/
+
+  - action: run
+    description: Make re-key hook scripts executable
+    chroot: true
+    command: chmod 0755 /etc/initramfs-tools/hooks/sirros-rekey /etc/initramfs-tools/scripts/init-premount/sirros-rekey
+
   - action: run
     description: Force initramfs update
     chroot: true

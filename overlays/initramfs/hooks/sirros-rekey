@@ -1,0 +1,25 @@
+#!/bin/sh
+# SirrOS: initramfs hook that bundles what the first-boot re-key script needs.
+# Installed to /etc/initramfs-tools/hooks/sirros-rekey (must be executable).
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+
+case "${1:-}" in
+    prereqs) prereqs; exit 0 ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+# cryptsetup (including the "reencrypt" subcommand) and the device-mapper module.
+# cryptsetup-initramfs normally does this already; repeating it is harmless.
+copy_exec /sbin/cryptsetup
+manual_add_modules dm_crypt
+
+# The on-screen keyboard keyscript used for the normal unlock prompt. It is
+# copied here too so the re-key script can reuse the exact same input method.
+if [ -x /usr/share/initramfs-tools/scripts/unl0kr-keyscript ]; then
+    copy_exec /usr/share/initramfs-tools/scripts/unl0kr-keyscript /lib/cryptsetup/scripts
+fi
+
+exit 0

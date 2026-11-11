@@ -1,0 +1,240 @@
+#!/bin/sh
+# SirrOS first-boot LUKS re-key (initramfs, init-premount stage)
+# Installed to /etc/initramfs-tools/scripts/init-premount/sirros-rekey
+# (must be executable).
+#
+# WHY
+#   Release images ship with a LUKS2 volume created at build time, so every
+#   flashed device would share the same volume key and the same well-known
+#   factory passphrase. Changing the passphrase later only re-wraps the SAME
+#   volume key, so it does not fix that. This script, on first boot:
+#     1. asks the user for a new passphrase,
+#     2. replaces the factory passphrase with it (luksChangeKey),
+#     3. generates a NEW volume key and re-encrypts the whole device
+#        (cryptsetup reencrypt, deliberately WITHOUT --keep-key).
+#
+# WHEN
+#   init-premount runs before local-top/cryptroot, so the root device is
+#   still closed and only holds the public factory content. No user data has
+#   ever been written under the old key.
+#
+# STATE MACHINE
+#   State is kept in the LUKS2 header label, so it survives power loss:
+#     label == SIRROS           -> done, exit immediately (cheap check)
+#     factory passphrase works  -> FRESH : ask new passphrase, change key,
+#                                          re-encrypt
+#     label == SIRROS-REKEY     -> RESUME: ask existing passphrase,
+#                                          (resume) re-encrypt
+#     anything else             -> not a factory image: mark done and exit
+#   If anything fails we exit 0 and the next boot picks up where it stopped.
+
+PREREQ="udev"
+prereqs() { echo "$PREREQ"; }
+
+case "${1:-}" in
+    prereqs) prereqs; exit 0 ;;
+esac
+
+# --- Configuration ----------------------------------------------------------
+
+# MUST match the LUKS passphrase the image was built with (image.yaml / CI).
+# It is public by design: it only authorizes this one-time first-boot step.
+FACTORY_PASS="s1rr0s"
+
+LABEL_DONE="SIRROS"
+LABEL_PENDING="SIRROS-REKEY"
+MIN_LEN=8            # minimum length for the new passphrase
+MAX_TRIES=5          # wrong-passphrase attempts when resuming
+WORK=/run/sirros-rekey   # tmpfs: passphrases never touch persistent storage
+
+# --- Helpers ----------------------------------------------------------------
+
+umask 077
+mkdir -p "$WORK"
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
+
+say() {
+    echo "[sirros-rekey] $*" > /dev/console 2>&1 || true
+    if command -v plymouth >/dev/null 2>&1; then
+        plymouth message --text="$*" >/dev/null 2>&1 || true
+    fi
+}
+
+# Resolve the LUKS device that initramfs will later unlock as "root".
+find_root_dev() {
+    [ -r /cryptroot/crypttab ] || return 1
+    src=""
+    while read -r name source _rest; do
+        if [ "$name" = "root" ]; then src="$source"; break; fi
+    done < /cryptroot/crypttab
+
+    case "$src" in
+        UUID=*)     dev="/dev/disk/by-uuid/${src#UUID=}" ;;
+        PARTUUID=*) dev="/dev/disk/by-partuuid/${src#PARTUUID=}" ;;
+        LABEL=*)    dev="/dev/disk/by-label/${src#LABEL=}" ;;
+        /dev/*)     dev="$src" ;;
+        *)          return 1 ;;
+    esac
+
+    # eMMC/SD may show up late; wait for udev, then poll.
+    udevadm settle 2>/dev/null || true
+    n=0
+    while [ ! -b "$dev" ] && [ "$n" -lt 30 ]; do
+        sleep 1
+        n=$((n + 1))
+    done
+    [ -b "$dev" ] || return 1
+    echo "$dev"
+}
+
+get_label() {
+    # Prints "(no label)" when unset, which never matches our labels.
+    cryptsetup luksDump "$DEV" 2>/dev/null | sed -n 's/^Label:[[:space:]]*//p'
+}
+
+reencrypt_in_progress() {
+    cryptsetup luksDump "$DEV" 2>/dev/null | grep -q 'online-reencrypt'
+}
+
+# Test the factory passphrase. Note: this costs one Argon2 run (~3 s), which is
+# why the label check above runs first and short-circuits normal boots.
+factory_unlocks() {
+    printf '%s' "$FACTORY_PASS" | \
+        cryptsetup open --test-passphrase --key-file=- "$DEV" >/dev/null 2>&1
+}
+
+file_unlocks() {
+    cryptsetup open --test-passphrase --key-file "$1" "$DEV" >/dev/null 2>&1
+}
+
+# Prompt for a secret and write it, byte for byte, to a file.
+# IMPORTANT: bytes must not be altered. Later, the normal boot path pipes the
+# same keyscript's output into "cryptsetup --key-file=-", which does NOT strip
+# newlines. Whatever the keyscript emits here must be what ends up in the
+# keyslot, so we store it verbatim and never re-encode it.
+# NOTE: how the keyscript renders the prompt text is up to unl0kr-keyscript;
+# check it on the device and adjust the env vars below if needed.
+ask_to_file() {   # $1 = prompt text, $2 = output file
+    if [ -n "$KEYSCRIPT" ]; then
+        CRYPTTAB_NAME="$1" CRYPTTAB_SOURCE="$DEV" "$KEYSCRIPT" none > "$2"
+    else
+        /lib/cryptsetup/askpass "$1: " > "$2"
+    fi
+}
+
+ask_new_passphrase() {   # result: $WORK/new
+    while :; do
+        say "Choose a NEW disk passphrase (min $MIN_LEN characters)"
+        ask_to_file "New passphrase" "$WORK/p1"
+        say "Repeat the new passphrase"
+        ask_to_file "Confirm passphrase" "$WORK/p2"
+
+        a=$(cat "$WORK/p1")
+        b=$(cat "$WORK/p2")
+        if [ "$a" != "$b" ]; then
+            say "Passphrases do not match, try again"; continue
+        fi
+        if [ "${#a}" -lt "$MIN_LEN" ]; then
+            say "Passphrase too short, try again"; continue
+        fi
+        if [ "$a" = "$FACTORY_PASS" ]; then
+            say "Passphrase must differ from the factory one"; continue
+        fi
+        mv "$WORK/p1" "$WORK/new"
+        rm -f "$WORK/p2"
+        return 0
+    done
+}
+
+ask_existing_passphrase() {   # result: $WORK/new
+    tries=0
+    while [ "$tries" -lt "$MAX_TRIES" ]; do
+        say "Re-encryption was interrupted. Enter your passphrase to resume"
+        ask_to_file "Passphrase" "$WORK/new"
+        if file_unlocks "$WORK/new"; then return 0; fi
+        say "Wrong passphrase"
+        tries=$((tries + 1))
+    done
+    return 1
+}
+
+do_reencrypt() {
+    say "Re-encrypting the disk with a NEW volume key. Keep the charger connected and do NOT power off"
+
+    # Use the offline code path when supported: the device is closed here.
+    OFFLINE=""
+    if cryptsetup --help 2>&1 | grep -q -- '--force-offline-reencrypt'; then
+        OFFLINE="--force-offline-reencrypt"
+    fi
+
+    if reencrypt_in_progress; then
+        # shellcheck disable=SC2086
+        cryptsetup reencrypt --resume-only --batch-mode $OFFLINE \
+            --key-file "$WORK/new" "$DEV" > /dev/console 2>&1
+    else
+        # No --keep-key: this is what generates a new volume key.
+        # --use-random: read the new key from /dev/random, which blocks until
+        # the kernel RNG is initialized (early boot entropy can be poor).
+        # shellcheck disable=SC2086
+        cryptsetup reencrypt --batch-mode $OFFLINE \
+            --use-random \
+            --cipher aes-xts-plain64 --key-size 512 --hash sha512 \
+            --resilience checksum --progress-frequency 5 \
+            --key-file "$WORK/new" "$DEV" > /dev/console 2>&1
+    fi
+}
+
+# --- Main -------------------------------------------------------------------
+
+KEYSCRIPT=""
+for k in /lib/cryptsetup/scripts/unl0kr-keyscript \
+         /usr/share/initramfs-tools/scripts/unl0kr-keyscript; do
+    if [ -x "$k" ]; then KEYSCRIPT="$k"; break; fi
+done
+
+DEV=$(find_root_dev) || exit 0
+
+label=$(get_label)
+[ "$label" = "$LABEL_DONE" ] && exit 0
+
+if factory_unlocks; then
+    state=fresh
+elif [ "$label" = "$LABEL_PENDING" ]; then
+    state=resume
+else
+    # Not a factory image (e.g. user-created LUKS): never check again.
+    cryptsetup config "$DEV" --label "$LABEL_DONE" >/dev/null 2>&1 || true
+    exit 0
+fi
+
+if [ "$state" = "fresh" ]; then
+    ask_new_passphrase
+
+    # Mark the work as pending BEFORE touching keyslots, so an interruption
+    # at any later point is recognized as RESUME on the next boot.
+    cryptsetup config "$DEV" --label "$LABEL_PENDING" || {
+        say "Could not set header label; will retry on next boot"; exit 0; }
+
+    # Replace the factory passphrase with the user's. After this step the
+    # public passphrase no longer unlocks the device (the old volume key is
+    # still in use until the re-encryption below completes).
+    printf '%s' "$FACTORY_PASS" > "$WORK/factory"
+    cryptsetup luksChangeKey "$DEV" "$WORK/new" --key-file "$WORK/factory" \
+        --pbkdf argon2id --pbkdf-memory 524288 --pbkdf-parallel 2 \
+        --iter-time 3000 || {
+        say "Could not change passphrase; will retry on next boot"; exit 0; }
+    rm -f "$WORK/factory"
+else
+    ask_existing_passphrase || {
+        say "Could not unlock; will retry on next boot"; exit 0; }
+fi
+
+if do_reencrypt; then
+    cryptsetup config "$DEV" --label "$LABEL_DONE" || true
+    say "Re-encryption complete"
+else
+    say "Re-encryption interrupted or failed; it will resume on next boot"
+fi
+
+exit 0
