@@ -112,15 +112,18 @@ actions:
 # We need this additional step which fully mounts /dev so cryptsetup
 # can create a proper crypttab
   - action: overlay
-    description: Install first-boot LUKS re-key hook
-    source: overlays/initramfs/
-    destination: /etc/initramfs-tools/
+    description: Install first-login LUKS re-key service
+    source: overlays/rekey/
+    destination: /
 
   - action: run
-    description: Make re-key hook scripts executable
+    description: Enable first-login LUKS re-key service
     chroot: true
-    command: chmod 0755 /etc/initramfs-tools/hooks/sirros-rekey /etc/initramfs-tools/scripts/init-premount/sirros-rekey
-
+    command: |
+      chmod 0755 /usr/local/sbin/sirros-rekey /usr/local/sbin/sirros-rekey-after-login
+      mkdir -p /var/lib/sirros
+      systemctl enable sirros-rekey.service
+      
   - action: run
     description: Force initramfs update
     chroot: true

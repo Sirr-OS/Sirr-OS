@@ -1,0 +1,54 @@
+#!/bin/sh
+# SirrOS: wait for the first real user login, then regenerate the LUKS2 volume
+# key silently (no prompts, no UI) using the factory passphrase.
+#
+# Started at boot by sirros-rekey.service. It does nothing visible: it polls
+# logind until a normal user session is active, lets the desktop settle, waits
+# for enough battery, then hands over to sirros-rekey.
+#
+# Runs once: sirros-rekey writes /var/lib/sirros/rekey.done when it succeeds,
+# and the service is skipped on every later boot.
+
+set -u
+
+STATE="${SIRROS_STATE:-/var/lib/sirros}"
+LOG="${SIRROS_LOG:-/var/log/sirros-rekey.log}"
+REKEY_BIN="${SIRROS_REKEY_BIN:-/usr/local/sbin/sirros-rekey}"
+POWER_DIR="${SIRROS_POWER_DIR:-/sys/class/power_supply}"
+SETTLE="${SIRROS_SETTLE:-30}"       # seconds to let the session finish starting
+POLL="${SIRROS_POLL:-5}"            # seconds between checks
+MIN_BATTERY=30                      # percent, when not charging
+
+log() { echo "$(date -u +%FT%TZ) [after-login] $*" >> "$LOG"; }
+
+[ -e "$STATE/rekey.done" ] && exit 0
+
+# True if a normal user session (not the greeter) is active.
+user_session_active() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r id _; do
+        [ "$(loginctl show-session "$id" -p Class --value 2>/dev/null)" = "user" ] || continue
+        st=$(loginctl show-session "$id" -p State --value 2>/dev/null)
+        if [ "$st" = "active" ] || [ "$st" = "online" ]; then echo yes; break; fi
+    done | grep -q yes
+}
+
+# True if it is safe to start rewriting the disk.
+power_ok() {
+    for b in "$POWER_DIR"/*; do
+        [ -r "$b/capacity" ] || continue
+        cap=$(cat "$b/capacity"); st=$(cat "$b/status" 2>/dev/null)
+        if [ "$cap" -lt "$MIN_BATTERY" ] && [ "$st" != "Charging" ] && [ "$st" != "Full" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+log "waiting for the first user login"
+until user_session_active; do sleep "$POLL"; done
+log "user session detected, settling for ${SETTLE}s"
+sleep "$SETTLE"
+
+until power_ok; do sleep 30; done
+log "starting re-key"
+exec "$REKEY_BIN"

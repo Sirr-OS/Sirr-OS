@@ -1,0 +1,127 @@
+#!/bin/sh
+# SirrOS: regenerate the LUKS2 volume key on first boot (online re-encryption).
+#
+# WHY
+#   Release images are encrypted at build time, so every flashed device shares
+#   the same volume key. Changing the passphrase only re-wraps that key. LUKS2
+#   supports ONLINE re-encryption, so this re-encrypts the mounted root device
+#   in the background with a freshly generated volume key.
+#
+# CALLED BY
+#   sirros-rekey-after-login (via sirros-rekey.service), after the first login.
+#
+# CREDENTIALS
+#   The public factory passphrase, used automatically and invisibly.
+#   --passfile FILE overrides it (manual runs, or after the passphrase was
+#   changed before this ran).
+#
+# LIMITS
+#   * This replaces the VOLUME KEY only; the keyslot keeps whatever passphrase
+#     unlocked it.
+#   * Data written before this finishes ends up under the new key, but flash
+#     wear-leveling may keep stale copies encrypted with the old (public) key.
+#
+# Usage: sirros-rekey [--passfile FILE]
+
+set -u
+
+FACTORY_PASS="s1rr0s"      # must match the passphrase used at build time
+NAME="root"                # dm-crypt mapping name (see /etc/crypttab)
+
+# Overridable only for tests outside a real device.
+STATE="${SIRROS_STATE:-/var/lib/sirros}"
+LOG="${SIRROS_LOG:-/var/log/sirros-rekey.log}"
+WORK="${SIRROS_WORK:-/run/sirros-rekey}"
+
+DONE="$STATE/rekey.done"
+umask 077
+mkdir -p "$STATE" "$WORK"
+trap 'rm -rf "$WORK"' EXIT
+
+log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
+
+PASSFILE=""
+if [ "${1:-}" = "--passfile" ]; then PASSFILE="${2:-}"; fi
+
+if [ -e "$DONE" ]; then log "already done, nothing to do"; exit 0; fi
+
+# 1. Backing device of the unlocked root mapping.
+if [ -n "${SIRROS_DEV:-}" ]; then
+    DEV="$SIRROS_DEV"
+else
+    DEV=$(cryptsetup status "$NAME" 2>/dev/null | sed -n 's/^[[:space:]]*device:[[:space:]]*//p')
+    [ -b "$DEV" ] || { log "ERROR: cannot find backing device of /dev/mapper/$NAME"; exit 1; }
+fi
+log "backing device: $DEV"
+
+# 2. LUKS2 only (LUKS1 has no online re-encryption).
+if ! cryptsetup luksDump "$DEV" 2>/dev/null | grep -q '^Version:[[:space:]]*2'; then
+    log "ERROR: $DEV is not LUKS2"; exit 1
+fi
+
+# 3. Credentials.
+if [ -n "$PASSFILE" ]; then
+    KF="$PASSFILE"
+else
+    printf '%s' "$FACTORY_PASS" > "$WORK/key"
+    KF="$WORK/key"
+fi
+if ! cryptsetup open --test-passphrase --key-file "$KF" "$DEV" >> "$LOG" 2>&1; then
+    log "ERROR: the passphrase does not unlock the volume (was it changed before the re-key ran?). Re-run manually with --passfile FILE"
+    exit 2
+fi
+
+# Fingerprint of the key digest (header metadata, not a secret). A different
+# value after the run proves a new volume key was generated.
+digest() {
+    cryptsetup luksDump "$DEV" 2>/dev/null | sed -n '/^Digests:/,$p' | sha256sum | cut -c1-16
+}
+[ -e "$STATE/digest.before" ] || digest > "$STATE/digest.before"
+
+# 4. Fresh run or resume of an interrupted one.
+if cryptsetup luksDump "$DEV" 2>/dev/null | grep -q 'online-reencrypt'; then
+    MODE="resume"
+else
+    MODE="fresh"
+fi
+log "mode: $MODE"
+
+# Online mode needs the active mapping name when the tool supports the option.
+ACTIVE=""
+if cryptsetup reencrypt --help 2>&1 | grep -q -- '--active-name'; then
+    ACTIVE="--active-name $NAME"
+fi
+
+log "re-encrypting (this takes a while; the system stays usable)"
+if [ "$MODE" = "resume" ]; then
+    # shellcheck disable=SC2086
+    cryptsetup reencrypt --resume-only --batch-mode $ACTIVE \
+        --key-file "$KF" "$DEV" >> "$LOG" 2>&1
+else
+    # No --keep-key: that is what generates a NEW volume key.
+    # shellcheck disable=SC2086
+    cryptsetup reencrypt --batch-mode --use-random $ACTIVE \
+        --cipher aes-xts-plain64 --key-size 512 --hash sha512 \
+        --resilience checksum \
+        --key-file "$KF" "$DEV" >> "$LOG" 2>&1
+fi
+rc=$?
+log "cryptsetup reencrypt exit code: $rc"
+if [ "$rc" -ne 0 ]; then
+    log "ERROR: re-encryption did not finish; it will resume on the next boot"
+    exit 1
+fi
+
+# 5. Verify that the volume key really changed.
+before=$(cat "$STATE/digest.before")
+after=$(digest)
+log "key digest fingerprint: $before -> $after"
+if [ "$before" = "$after" ]; then
+    log "ERROR: digest unchanged, volume key was NOT regenerated"
+    exit 1
+fi
+
+sync
+echo "volume key regenerated $(date -u +%FT%TZ)" > "$DONE"
+log "OK: volume key regenerated"
+exit 0

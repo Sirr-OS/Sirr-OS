@@ -1,0 +1,19 @@
+[Unit]
+Description=SirrOS first-login LUKS volume key regeneration
+# Skipped for good once the key has been regenerated.
+ConditionPathExists=!/var/lib/sirros/rekey.done
+ConditionPathExists=/dev/mapper/root
+After=local-fs.target systemd-logind.service
+
+[Service]
+# "simple" so boot never waits for it.
+Type=simple
+ExecStart=/usr/local/sbin/sirros-rekey-after-login
+# Keep the UI responsive while the whole disk is rewritten.
+Nice=19
+IOSchedulingClass=idle
+# On failure the next boot tries again (the Condition above stays true).
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
