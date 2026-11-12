@@ -18,6 +18,12 @@
 #   still closed and only holds the public factory content. No user data has
 #   ever been written under the old key.
 #
+# WHAT THE USER SEES (the on-screen keyboard is the same for every prompt)
+#   prompt 1: NEW passphrase      (min MIN_LEN chars, must not be the factory one)
+#   prompt 2: repeat it
+#   ...re-encryption runs (minutes, no progress bar on screen)...
+#   prompt 3: the normal unlock prompt (type the new passphrase again)
+#
 # STATE MACHINE
 #   State is kept in the LUKS2 header label, so it survives power loss:
 #     label == SIRROS           -> done, exit immediately (cheap check)
@@ -27,6 +33,13 @@
 #                                          (resume) re-encrypt
 #     anything else             -> not a factory image: mark done and exit
 #   If anything fails we exit 0 and the next boot picks up where it stopped.
+#
+# DEBUGGING
+#   Console output is hidden behind the on-screen keyboard, so with
+#   DEBUG_LOG=1 every step is also written to /sirros-rekey.log on the
+#   (unencrypted) boot partition, readable from a PC. The log never contains
+#   passphrases (only lengths and exit codes). Messages also go to the kernel
+#   log (dmesg | grep sirros-rekey) if the system boots afterwards.
 
 PREREQ="udev"
 prereqs() { echo "$PREREQ"; }
@@ -45,25 +58,75 @@ LABEL_DONE="SIRROS"
 LABEL_PENDING="SIRROS-REKEY"
 MIN_LEN=8            # minimum length for the new passphrase
 MAX_TRIES=5          # wrong-passphrase attempts when resuming
-WORK=/run/sirros-rekey   # tmpfs: passphrases never touch persistent storage
 
-# --- Helpers ----------------------------------------------------------------
+# 1 = also save the log to the boot partition (set to 0 for release images).
+DEBUG_LOG="${SIRROS_REKEY_DEBUG:-1}"
+BOOT_LABEL="boot"    # must match the LABEL=boot entry in fstab
+
+# The following can be overridden ONLY to test this script outside an
+# initramfs (see SIRROS_REKEY_DEV / SIRROS_REKEY_KEYSCRIPT below).
+WORK="${SIRROS_REKEY_WORK:-/run/sirros-rekey}"   # tmpfs: secrets never hit disk
+LOG="${SIRROS_REKEY_LOG:-/run/sirros-rekey.log}"
+
+# --- Logging ----------------------------------------------------------------
 
 umask 077
 mkdir -p "$WORK"
-cleanup() { rm -rf "$WORK"; }
+: >> "$LOG"
+
+log() {
+    read -r up _ < /proc/uptime 2>/dev/null || up="?"
+    echo "[$up] $*" >> "$LOG"
+}
+
+# Copy the whole log to the boot partition (overwrites the previous copy).
+save_log() {
+    [ "$DEBUG_LOG" = "1" ] || return 0
+    [ -s "$LOG" ] || return 0
+    bdev="/dev/disk/by-label/$BOOT_LABEL"
+    [ -b "$bdev" ] || return 0
+    mnt=/run/sirros-boot
+    mkdir -p "$mnt"
+    if mount -t ext4 "$bdev" "$mnt" >/dev/null 2>&1; then
+        cp "$LOG" "$mnt/sirros-rekey.log" 2>/dev/null
+        sync
+        umount "$mnt" >/dev/null 2>&1
+    fi
+    # rmdir (never rm -rf) so a failed umount can't delete boot files.
+    rmdir "$mnt" 2>/dev/null || true
+}
+
+cleanup() {
+    save_log
+    rm -rf "$WORK"
+}
 trap cleanup EXIT
 
 say() {
-    echo "[sirros-rekey] $*" > /dev/console 2>&1 || true
+    log "$*"
+    ( echo "[sirros-rekey] $*" > /dev/console ) 2>/dev/null || true
+    ( echo "sirros-rekey: $*" > /dev/kmsg ) 2>/dev/null || true
     if command -v plymouth >/dev/null 2>&1; then
         plymouth message --text="$*" >/dev/null 2>&1 || true
     fi
+    save_log
 }
+
+# Log header-only facts (label, requirements, keyslot types). No secrets.
+dump_summary() {
+    log "header ($1):"
+    cryptsetup luksDump "$DEV" 2>&1 | \
+        grep -E '^(Version|Label|Requirements)|^[[:space:]]+[0-9]+: (luks2|reencrypt)' \
+        >> "$LOG"
+}
+
+# --- Helpers ----------------------------------------------------------------
 
 # Resolve the LUKS device that initramfs will later unlock as "root".
 find_root_dev() {
-    [ -r /cryptroot/crypttab ] || return 1
+    if [ ! -r /cryptroot/crypttab ]; then
+        log "no /cryptroot/crypttab in initramfs"; return 1
+    fi
     src=""
     while read -r name source _rest; do
         if [ "$name" = "root" ]; then src="$source"; break; fi
@@ -74,7 +137,7 @@ find_root_dev() {
         PARTUUID=*) dev="/dev/disk/by-partuuid/${src#PARTUUID=}" ;;
         LABEL=*)    dev="/dev/disk/by-label/${src#LABEL=}" ;;
         /dev/*)     dev="$src" ;;
-        *)          return 1 ;;
+        *)          log "unrecognized crypttab source: '$src'"; return 1 ;;
     esac
 
     # eMMC/SD may show up late; wait for udev, then poll.
@@ -84,7 +147,9 @@ find_root_dev() {
         sleep 1
         n=$((n + 1))
     done
-    [ -b "$dev" ] || return 1
+    if [ ! -b "$dev" ]; then
+        log "device $dev did not appear"; return 1
+    fi
     echo "$dev"
 }
 
@@ -98,7 +163,7 @@ reencrypt_in_progress() {
 }
 
 # Test the factory passphrase. Note: this costs one Argon2 run (~3 s), which is
-# why the label check above runs first and short-circuits normal boots.
+# why the label check in main runs first and short-circuits normal boots.
 factory_unlocks() {
     printf '%s' "$FACTORY_PASS" | \
         cryptsetup open --test-passphrase --key-file=- "$DEV" >/dev/null 2>&1
@@ -121,28 +186,32 @@ ask_to_file() {   # $1 = prompt text, $2 = output file
     else
         /lib/cryptsetup/askpass "$1: " > "$2"
     fi
+    rc=$?
+    [ "$rc" -eq 0 ] || log "prompt '$1' returned exit code $rc"
+    return 0
 }
 
 ask_new_passphrase() {   # result: $WORK/new
     while :; do
-        say "Choose a NEW disk passphrase (min $MIN_LEN characters)"
+        say "Prompt 1/2: choose a NEW disk passphrase (min $MIN_LEN chars)"
         ask_to_file "New passphrase" "$WORK/p1"
-        say "Repeat the new passphrase"
+        say "Prompt 2/2: repeat the new passphrase"
         ask_to_file "Confirm passphrase" "$WORK/p2"
 
         a=$(cat "$WORK/p1")
         b=$(cat "$WORK/p2")
         if [ "$a" != "$b" ]; then
-            say "Passphrases do not match, try again"; continue
+            say "Rejected: passphrases do not match"; continue
         fi
         if [ "${#a}" -lt "$MIN_LEN" ]; then
-            say "Passphrase too short, try again"; continue
+            say "Rejected: too short (${#a} chars, need $MIN_LEN)"; continue
         fi
         if [ "$a" = "$FACTORY_PASS" ]; then
-            say "Passphrase must differ from the factory one"; continue
+            say "Rejected: must differ from the factory passphrase"; continue
         fi
         mv "$WORK/p1" "$WORK/new"
         rm -f "$WORK/p2"
+        log "new passphrase accepted (${#a} chars)"
         return 0
     done
 }
@@ -169,10 +238,13 @@ do_reencrypt() {
     fi
 
     if reencrypt_in_progress; then
+        log "reencrypt: resuming interrupted run"
         # shellcheck disable=SC2086
         cryptsetup reencrypt --resume-only --batch-mode $OFFLINE \
-            --key-file "$WORK/new" "$DEV" > /dev/console 2>&1
+            --key-file "$WORK/new" "$DEV" >> "$LOG" 2>&1
+        rc=$?
     else
+        log "reencrypt: starting, new volume key will be generated"
         # No --keep-key: this is what generates a new volume key.
         # --use-random: read the new key from /dev/random, which blocks until
         # the kernel RNG is initialized (early boot entropy can be poor).
@@ -181,22 +253,41 @@ do_reencrypt() {
             --use-random \
             --cipher aes-xts-plain64 --key-size 512 --hash sha512 \
             --resilience checksum --progress-frequency 5 \
-            --key-file "$WORK/new" "$DEV" > /dev/console 2>&1
+            --key-file "$WORK/new" "$DEV" >> "$LOG" 2>&1
+        rc=$?
     fi
+    log "reencrypt: exit code $rc"
+    return "$rc"
 }
 
 # --- Main -------------------------------------------------------------------
 
-KEYSCRIPT=""
-for k in /lib/cryptsetup/scripts/unl0kr-keyscript \
-         /usr/share/initramfs-tools/scripts/unl0kr-keyscript; do
-    if [ -x "$k" ]; then KEYSCRIPT="$k"; break; fi
-done
+log "start: $(cryptsetup --version 2>&1)"
 
-DEV=$(find_root_dev) || exit 0
+# KEYSCRIPT is overridable for tests only.
+KEYSCRIPT="${SIRROS_REKEY_KEYSCRIPT:-}"
+if [ -z "$KEYSCRIPT" ]; then
+    for k in /lib/cryptsetup/scripts/unl0kr-keyscript \
+             /usr/share/initramfs-tools/scripts/unl0kr-keyscript; do
+        if [ -x "$k" ]; then KEYSCRIPT="$k"; break; fi
+    done
+fi
+log "keyscript: ${KEYSCRIPT:-none (using askpass)}"
+
+# DEV is overridable for tests only (skips crypttab lookup).
+if [ -n "${SIRROS_REKEY_DEV:-}" ]; then
+    DEV="$SIRROS_REKEY_DEV"
+else
+    DEV=$(find_root_dev) || { log "giving up: no root device"; exit 0; }
+fi
+log "root device: $DEV"
 
 label=$(get_label)
-[ "$label" = "$LABEL_DONE" ] && exit 0
+log "label: '$label'"
+if [ "$label" = "$LABEL_DONE" ]; then
+    exit 0
+fi
+dump_summary "before"
 
 if factory_unlocks; then
     state=fresh
@@ -204,17 +295,24 @@ elif [ "$label" = "$LABEL_PENDING" ]; then
     state=resume
 else
     # Not a factory image (e.g. user-created LUKS): never check again.
-    cryptsetup config "$DEV" --label "$LABEL_DONE" >/dev/null 2>&1 || true
+    log "factory passphrase does not unlock and no pending label: marking done"
+    cryptsetup config "$DEV" --label "$LABEL_DONE" >> "$LOG" 2>&1 || true
     exit 0
 fi
+log "state: $state"
 
 if [ "$state" = "fresh" ]; then
     ask_new_passphrase
 
     # Mark the work as pending BEFORE touching keyslots, so an interruption
     # at any later point is recognized as RESUME on the next boot.
-    cryptsetup config "$DEV" --label "$LABEL_PENDING" || {
-        say "Could not set header label; will retry on next boot"; exit 0; }
+    cryptsetup config "$DEV" --label "$LABEL_PENDING" >> "$LOG" 2>&1
+    rc=$?
+    log "config --label $LABEL_PENDING: exit code $rc"
+    if [ "$rc" -ne 0 ]; then
+        say "ERROR: could not set header label; passphrase NOT changed, will retry on next boot"
+        exit 0
+    fi
 
     # Replace the factory passphrase with the user's. After this step the
     # public passphrase no longer unlocks the device (the old volume key is
@@ -222,19 +320,27 @@ if [ "$state" = "fresh" ]; then
     printf '%s' "$FACTORY_PASS" > "$WORK/factory"
     cryptsetup luksChangeKey "$DEV" "$WORK/new" --key-file "$WORK/factory" \
         --pbkdf argon2id --pbkdf-memory 524288 --pbkdf-parallel 2 \
-        --iter-time 3000 || {
-        say "Could not change passphrase; will retry on next boot"; exit 0; }
+        --iter-time 3000 >> "$LOG" 2>&1
+    rc=$?
     rm -f "$WORK/factory"
+    log "luksChangeKey: exit code $rc"
+    if [ "$rc" -ne 0 ]; then
+        say "ERROR: could not change passphrase; factory passphrase still active, will retry on next boot"
+        exit 0
+    fi
 else
     ask_existing_passphrase || {
-        say "Could not unlock; will retry on next boot"; exit 0; }
+        say "ERROR: could not unlock; will retry on next boot"; exit 0; }
 fi
 
 if do_reencrypt; then
-    cryptsetup config "$DEV" --label "$LABEL_DONE" || true
+    cryptsetup config "$DEV" --label "$LABEL_DONE" >> "$LOG" 2>&1
+    log "config --label $LABEL_DONE: exit code $?"
+    dump_summary "after"
     say "Re-encryption complete"
 else
-    say "Re-encryption interrupted or failed; it will resume on next boot"
+    dump_summary "after failure"
+    say "ERROR: re-encryption failed or was interrupted; it will resume on next boot"
 fi
 
 exit 0
