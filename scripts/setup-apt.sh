@@ -8,6 +8,11 @@ if [ "${DEBIAN_SUITE}" = "bullseye" ] || [ "${DEBIAN_SUITE}" = "bookworm" ] || [
     echo "deb http://security.debian.org/ ${DEBIAN_SUITE}-security main" >> /etc/apt/sources.list
 fi
 
+# Enable trixie-updates automatically for the trixie suite
+if [ "${SUITE}" = "trixie" ]; then
+    SUITE="trixie trixie-updates"
+fi
+
 # Set the proper suite in our sources file
 sed -i "s/Suites: .*/Suites: ${SUITE}/" /etc/apt/sources.list.d/mobian.sources
 
