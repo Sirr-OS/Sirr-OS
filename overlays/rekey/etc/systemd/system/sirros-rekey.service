@@ -1,17 +1,34 @@
 [Unit]
-Description=SirrOS first-login LUKS volume key regeneration
+Description=SirrOS LUKS2 volume key regeneration (after the first Phosh unlock)
+Documentation=file:/usr/local/sbin/sirros-rekey-after-login
 # Skipped for good once the key has been regenerated.
 ConditionPathExists=!/var/lib/sirros/rekey.done
+# The root volume is unlocked by the initramfs (unl0kr) before systemd starts,
+# so when this unit runs the LUKS passphrase has already been entered.
 ConditionPathExists=/dev/mapper/root
 After=local-fs.target systemd-logind.service
+Wants=systemd-logind.service
 
 [Service]
-# "simple" so boot never waits for it.
+# "simple": the unit counts as started at once, so neither boot nor the Phosh
+# session ever waits for it. The script itself waits for the unlocked session.
 Type=simple
 ExecStart=/usr/local/sbin/sirros-rekey-after-login
-# Keep the UI responsive while the whole disk is rewritten.
+# Keep the phone responsive while the whole disk is rewritten: lowest CPU
+# priority and weight, idle I/O class, lowest I/O weight.
 Nice=19
+CPUSchedulingPolicy=batch
+CPUWeight=1
 IOSchedulingClass=idle
+IOWeight=1
+# Logs: journalctl -t sirros-rekey   (plus /var/lib/sirros/rekey.log)
+SyslogIdentifier=sirros-rekey
+StandardOutput=journal
+StandardError=journal
+# On shutdown every process gets SIGTERM; cryptsetup then saves its progress
+# in the LUKS header (a few seconds at most) and the next boot resumes.
+KillMode=control-group
+TimeoutStopSec=30
 # On failure the next boot tries again (the Condition above stays true).
 Restart=no
 

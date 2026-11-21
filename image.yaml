@@ -120,7 +120,8 @@ actions:
     description: Enable first-login LUKS re-key service
     chroot: true
     command: |
-      chmod 0755 /usr/local/sbin/sirros-rekey /usr/local/sbin/sirros-rekey-after-login
+      chmod 0755 /usr/local/sbin/sirros-rekey /usr/local/sbin/sirros-rekey-after-login /usr/local/sbin/sirros-rekey-status
+      chmod 0644 /usr/local/lib/sirros/notify.sh
       mkdir -p /var/lib/sirros
       systemctl enable sirros-rekey.service
       

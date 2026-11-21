@@ -1,0 +1,33 @@
+#!/bin/sh
+# SirrOS: show where the first-boot LUKS re-key is, from the phone's terminal
+# (King's Cross or any terminal; no root needed for the log file).
+#
+# Usage: sirros-rekey-status [LINES]     (default: last 40 log lines)
+#        sirros-rekey-status -f          follow the log live (Ctrl+C to quit)
+
+STATE="${SIRROS_STATE:-/var/lib/sirros}"
+LOG="${SIRROS_LOG:-$STATE/rekey.log}"
+
+if [ "${1:-}" = "-f" ]; then exec tail -n 40 -F "$LOG"; fi
+n="${1:-40}"
+
+echo "== SirrOS disk re-key =="
+if [ -e "$STATE/rekey.done" ]; then
+    echo "state:   DONE ($(cat "$STATE/rekey.done" 2>/dev/null))"
+else
+    echo "state:   not done yet"
+fi
+if command -v systemctl >/dev/null 2>&1; then
+    echo "service: $(systemctl is-active sirros-rekey.service 2>/dev/null) / $(systemctl is-enabled sirros-rekey.service 2>/dev/null)"
+fi
+p=$(grep 'Progress:' "$LOG" 2>/dev/null | tail -n 1)
+[ -n "$p" ] && echo "last progress: $p"
+echo "log:     $LOG"
+echo
+if [ -r "$LOG" ]; then
+    tail -n "$n" "$LOG"
+else
+    echo "(no log yet: the service has not run since the image was flashed)"
+fi
+echo
+echo "More: sirros-rekey-status -f   |   sudo journalctl -t sirros-rekey -b"

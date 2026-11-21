@@ -1,10 +1,25 @@
 #!/bin/sh
-# SirrOS: wait for the first real user login, then regenerate the LUKS2 volume
-# key silently (no prompts, no UI) using the factory passphrase.
+# SirrOS: wait until the user has unlocked the disk at boot AND unlocked the
+# Phosh session, then regenerate the LUKS2 volume key in the background (no
+# prompts) using the factory passphrase, while the phone stays usable.
 #
-# Started at boot by sirros-rekey.service. It does nothing visible: it polls
-# logind until a normal user session is active, lets the desktop settle, waits
-# for enough battery, then hands over to sirros-rekey.
+# Started at boot by sirros-rekey.service (Type=simple: boot never waits for
+# it). The root volume is already open when it starts, because the initramfs
+# (unl0kr) unlocks it before systemd runs. It then:
+#   1. waits for an active graphical user session (Phosh) on this seat,
+#   2. waits until its lock screen is unlocked (logind LockedHint=no),
+#   3. waits for the session D-Bus (for notifications) and lets it settle,
+#   4. waits for enough battery or a charger,
+#   5. runs sirros-rekey at idle CPU/IO priority (set in the unit) and keeps ONE
+#      Phosh notification updated with a timer and the % done. If the battery
+#      becomes critical it pauses cryptsetup cleanly and resumes on the charger.
+#
+# LOG (no UART needed)
+#   Every step, battery check, exit code and every line of sirros-rekey's
+#   stdout/stderr is written with a timestamp to $LOG, default
+#   /var/lib/sirros/rekey.log, on the encrypted root so it survives reboots,
+#   readable without root. Also in the journal:  journalctl -t sirros-rekey
+#   Quick summary:  sirros-rekey-status
 #
 # Runs once: sirros-rekey writes /var/lib/sirros/rekey.done when it succeeds,
 # and the service is skipped on every later boot.
@@ -12,43 +27,259 @@
 set -u
 
 STATE="${SIRROS_STATE:-/var/lib/sirros}"
-LOG="${SIRROS_LOG:-/var/log/sirros-rekey.log}"
+LOG="${SIRROS_LOG:-$STATE/rekey.log}"
+LOG_MAX="${SIRROS_LOG_MAX:-1048576}"   # bytes; older content moves to $LOG.1
 REKEY_BIN="${SIRROS_REKEY_BIN:-/usr/local/sbin/sirros-rekey}"
 POWER_DIR="${SIRROS_POWER_DIR:-/sys/class/power_supply}"
-SETTLE="${SIRROS_SETTLE:-30}"       # seconds to let the session finish starting
-POLL="${SIRROS_POLL:-5}"            # seconds between checks
-MIN_BATTERY=30                      # percent, when not charging
+RUNDIR="${SIRROS_RUNDIR:-/run}"
+SETTLE="${SIRROS_SETTLE:-30}"           # seconds to let the session finish starting
+POLL="${SIRROS_POLL:-5}"                # seconds between checks
+HEARTBEAT="${SIRROS_HEARTBEAT:-600}"    # log "still waiting/running" this often
+UNLOCK_TIMEOUT="${SIRROS_UNLOCK_TIMEOUT:-1800}"  # s locked before going anyway, 0 = never
+MIN_BATTERY="${SIRROS_MIN_BATTERY:-30}"   # percent to START, when not charging
+CRIT_BATTERY="${SIRROS_CRIT_BATTERY:-15}" # percent to PAUSE, when not charging
+POWER_POLL="${SIRROS_POWER_POLL:-30}"   # seconds between battery checks while waiting
+NOTIFY_LIB="${SIRROS_NOTIFY_LIB:-/usr/local/lib/sirros/notify.sh}"
+NOTIFY_INTERVAL="${SIRROS_NOTIFY_INTERVAL:-60}"   # seconds between timer updates
+ERRF="$STATE/.rekey.stderr"
 
-log() { echo "$(date -u +%FT%TZ) [after-login] $*" >> "$LOG"; }
+# --- log ---------------------------------------------------------------------
+umask 022
+mkdir -p "$STATE"
+chmod 0755 "$STATE" 2>/dev/null
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt "$LOG_MAX" ]; then
+    mv -f "$LOG" "$LOG.1"
+fi
+[ -e "$LOG" ] || : > "$LOG"
+chmod 0644 "$LOG" 2>/dev/null
 
-[ -e "$STATE/rekey.done" ] && exit 0
+log() {
+    line="$(date '+%F %T %z') [after-login] $*"
+    printf '%s\n' "$line" >> "$LOG" 2>/dev/null
+    printf '%s\n' "$line"
+}
 
-# True if a normal user session (not the greeter) is active.
-user_session_active() {
+T0=$(date +%s)
+since() { echo $(( $(date +%s) - $1 )); }
+
+STOPPING=0
+trap 'STOPPING=1; log "stop requested (shutdown/reboot or systemctl stop)"' TERM INT HUP
+
+boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+uptime_s=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo '?')
+log "==== service started: boot $boot_id, uptime ${uptime_s}s, pid $$ ===="
+log "priority: nice $(nice), io '$(ionice -p $$ 2>/dev/null || echo unknown)'"
+if [ -e /dev/mapper/root ]; then
+    log "root volume is unlocked (/dev/mapper/root present)"
+else
+    log "WARNING: /dev/mapper/root not present (test run or unencrypted image?)"
+fi
+
+if [ -e "$STATE/rekey.done" ]; then
+    log "already done ($(cat "$STATE/rekey.done" 2>/dev/null)), exiting"
+    exit 0
+fi
+
+# --- user session --------------------------------------------------------------
+# Prints "ID UID NAME TYPE LOCKED SERVICE" for the first active, local,
+# graphical user session (Phosh, or any wayland/x11 desktop); nothing if none.
+find_session() {
     loginctl list-sessions --no-legend 2>/dev/null | while read -r id _; do
-        [ "$(loginctl show-session "$id" -p Class --value 2>/dev/null)" = "user" ] || continue
-        st=$(loginctl show-session "$id" -p State --value 2>/dev/null)
-        if [ "$st" = "active" ] || [ "$st" = "online" ]; then echo yes; break; fi
-    done | grep -q yes
-}
-
-# True if it is safe to start rewriting the disk.
-power_ok() {
-    for b in "$POWER_DIR"/*; do
-        [ -r "$b/capacity" ] || continue
-        cap=$(cat "$b/capacity"); st=$(cat "$b/status" 2>/dev/null)
-        if [ "$cap" -lt "$MIN_BATTERY" ] && [ "$st" != "Charging" ] && [ "$st" != "Full" ]; then
-            return 1
-        fi
+        p=$(loginctl show-session "$id" -p Class -p Type -p State -p User \
+            -p Name -p LockedHint -p Remote -p Service 2>/dev/null)
+        g() { printf '%s\n' "$p" | sed -n "s/^$1=//p"; }
+        [ "$(g Class)" = user ] || continue
+        [ "$(g Remote)" = yes ] && continue
+        case "$(g Type)" in wayland|x11|mir) ;; *) continue ;; esac
+        case "$(g State)" in active|online) ;; *) continue ;; esac
+        lk=$(g LockedHint); [ -n "$lk" ] || lk=no
+        echo "$id $(g User) $(g Name) $(g Type) $lk $(g Service)"
+        break
     done
-    return 0
 }
 
-log "waiting for the first user login"
-until user_session_active; do sleep "$POLL"; done
-log "user session detected, settling for ${SETTLE}s"
+log "step 1/5: waiting for a graphical user session (Phosh login)"
+last=""; beat=$(date +%s); locked_since=""
+while :; do
+    [ "$STOPPING" = 1 ] && { log "stopped while waiting, nothing started"; exit 0; }
+    s=$(find_session)
+    if [ -z "$s" ]; then
+        now="no graphical user session yet"
+    else
+        # shellcheck disable=SC2086
+        set -- $s
+        S_ID=$1; S_UID=$2; S_NAME=$3; S_TYPE=$4; S_LOCKED=$5; S_SERVICE=${6:-?}
+        now="session $S_ID of $S_NAME (uid $S_UID, $S_TYPE, pam service $S_SERVICE), locked=$S_LOCKED"
+        if [ "$S_LOCKED" = no ]; then
+            log "$now"
+            log "step 2/5: session is unlocked by the user"
+            break
+        fi
+        [ -n "$locked_since" ] || locked_since=$(date +%s)
+        if [ "$UNLOCK_TIMEOUT" -gt 0 ] && [ "$(since "$locked_since")" -ge "$UNLOCK_TIMEOUT" ]; then
+            log "$now"
+            log "step 2/5: still locked after ${UNLOCK_TIMEOUT}s, continuing anyway (LockedHint may never change on this build)"
+            break
+        fi
+    fi
+    if [ "$now" != "$last" ]; then
+        log "$now"; last=$now; beat=$(date +%s)
+    elif [ "$(since "$beat")" -ge "$HEARTBEAT" ]; then
+        log "still waiting: $now"; beat=$(date +%s)
+    fi
+    sleep "$POLL"
+done
+export SIRROS_SESSION_UID="$S_UID" SIRROS_SESSION_NAME="$S_NAME"
+
+log "step 3/5: waiting for the session D-Bus, then settling for ${SETTLE}s"
+bus="$RUNDIR/user/$S_UID/bus"
+i=0
+while [ ! -S "$bus" ] && [ "$i" -lt 120 ]; do sleep 1; i=$((i + 1)); done
+if [ -S "$bus" ]; then log "session bus ready: $bus"; else log "no session bus at $bus after 120s, notifications disabled"; fi
 sleep "$SETTLE"
 
-until power_ok; do sleep 30; done
-log "starting re-key"
-exec "$REKEY_BIN"
+# --- power ---------------------------------------------------------------------
+# One line describing every power supply, for the log.
+power_desc() {
+    d=""
+    for b in "$POWER_DIR"/*; do
+        [ -d "$b" ] || [ -L "$b" ] || continue
+        t=$(cat "$b/type" 2>/dev/null)
+        if [ -r "$b/capacity" ]; then
+            d="$d ${b##*/}=$(cat "$b/capacity" 2>/dev/null)%/$(cat "$b/status" 2>/dev/null)"
+        elif [ -r "$b/online" ]; then
+            d="$d ${b##*/}(${t:-?})=online:$(cat "$b/online" 2>/dev/null)"
+        fi
+    done
+    echo "${d:- no power supply info}"
+}
+
+# True if a charger is plugged in (any non-battery supply online, or a battery
+# reporting Charging/Full).
+charging() {
+    for b in "$POWER_DIR"/*; do
+        t=$(cat "$b/type" 2>/dev/null)
+        if [ "$t" != Battery ] && [ "$(cat "$b/online" 2>/dev/null)" = 1 ]; then return 0; fi
+        case "$(cat "$b/status" 2>/dev/null)" in Charging|Full) return 0 ;; esac
+    done
+    return 1
+}
+
+# Lowest battery capacity in percent (100 if there is no battery).
+battery_pct() {
+    low=100
+    for b in "$POWER_DIR"/*; do
+        [ "$(cat "$b/type" 2>/dev/null)" = Battery ] || [ -r "$b/capacity" ] || continue
+        c=$(cat "$b/capacity" 2>/dev/null)
+        case "$c" in ''|*[!0-9]*) continue ;; esac
+        [ "$c" -lt "$low" ] && low=$c
+    done
+    echo "$low"
+}
+
+power_ok() { charging || [ "$(battery_pct)" -ge "$1" ]; }
+
+# wait_power MIN: block until power_ok MIN, logging changes and heartbeats.
+wait_power() {
+    if power_ok "$1"; then log "power OK:$(power_desc)"; return 0; fi
+    log "waiting for battery >= $1% or a charger:$(power_desc)"
+    wl=""; wb=$(date +%s)
+    while ! power_ok "$1"; do
+        [ "$STOPPING" = 1 ] && return 1
+        sleep "$POWER_POLL"
+        nd=$(power_desc)
+        if [ "$nd" != "$wl" ] && [ "$(since "$wb")" -ge 300 ] || [ "$(since "$wb")" -ge "$HEARTBEAT" ]; then
+            log "still waiting for power:$nd"; wl=$nd; wb=$(date +%s)
+        fi
+    done
+    log "power OK:$(power_desc)"
+}
+
+log "step 4/5: battery check (start needs >= ${MIN_BATTERY}% or a charger)"
+wait_power "$MIN_BATTERY" || { log "stopped while waiting for power, nothing started"; exit 0; }
+
+# --- re-key --------------------------------------------------------------------
+# Optional: notifications. If the helper is missing the re-key still runs.
+# shellcheck disable=SC1090
+if [ -r "$NOTIFY_LIB" ] && . "$NOTIFY_LIB"; then
+    log "notifications: $NOTIFY_LIB loaded"
+else
+    log "notifications: $NOTIFY_LIB not found, running without them"
+fi
+export SIRROS_PROGRESS_FILE="$LOG"
+# NOTE: notify.sh uses plain global names (rc, pid, info...); keep this
+# script's own state in UPPERCASE names so they never collide.
+have_notify() { command -v sirros_notify >/dev/null 2>&1; }
+
+flush_stderr() {
+    if [ -s "$ERRF" ]; then
+        while IFS= read -r l; do log "sirros-rekey stderr: $l"; done < "$ERRF"
+    fi
+    rm -f "$ERRF"
+}
+
+attempt=0
+REKEY_RC=1
+while :; do
+    attempt=$((attempt + 1))
+    paused=0
+    log "step 5/5: starting $REKEY_BIN (attempt $attempt)"
+    RT0=$(date +%s)
+    # stdout: sirros-rekey writes its own timestamped lines to $LOG and stdout
+    # (journal). stderr: anything unexpected (shell errors), logged below.
+    "$REKEY_BIN" 2>"$ERRF" &
+    rekey_pid=$!
+    log "sirros-rekey running as pid $rekey_pid"
+
+    npid=""
+    if have_notify; then
+        sirros_notify_progress "$rekey_pid" "$NOTIFY_INTERVAL" &
+        npid=$!
+    fi
+
+    beat=$(date +%s)
+    while kill -0 "$rekey_pid" 2>/dev/null; do
+        sleep "$POLL"
+        if [ "$STOPPING" = 0 ] && [ "$paused" = 0 ] && ! power_ok "$CRIT_BATTERY"; then
+            log "battery critical (<${CRIT_BATTERY}%, no charger):$(power_desc); pausing cryptsetup cleanly"
+            paused=1
+            # SIGTERM, not SIGINT: background jobs of sh start with SIGINT ignored.
+            pkill -TERM -x cryptsetup 2>/dev/null
+        fi
+        if [ "$(since "$beat")" -ge "$HEARTBEAT" ]; then
+            log "still running ($(since "$RT0")s):$(power_desc)"; beat=$(date +%s)
+        fi
+    done
+    wait "$rekey_pid" 2>/dev/null
+    REKEY_RC=$?
+    flush_stderr
+
+    if [ -n "$npid" ]; then
+        kill "$npid" 2>/dev/null
+        wait "$npid" 2>/dev/null
+    fi
+    log "sirros-rekey exited with code $REKEY_RC after $(since "$RT0")s"
+
+    if [ "$REKEY_RC" -eq 0 ] && [ -e "$STATE/rekey.done" ]; then
+        have_notify && sirros_notify "Your disk is secured" "A new unique encryption key is now in use." 1
+        break
+    fi
+    if [ "$STOPPING" = 1 ]; then
+        log "stopped; the re-key resumes from where it was at the next boot/login"
+        break
+    fi
+    if [ "$paused" = 1 ]; then
+        have_notify && sirros_notify "Disk setup paused" "Battery is low. Connect the charger and it will continue." 2
+        log "paused for low battery, waiting for the charger to resume"
+        wait_power "$MIN_BATTERY" || break
+        have_notify && sirros_notify_reset
+        continue
+    fi
+    log "ERROR: re-key failed (see the [rekey] lines above); it will retry at the next boot/login"
+    have_notify && sirros_notify "Disk setup paused" "The new encryption key will finish at your next login, keep the phone charged." 1
+    break
+done
+have_notify && sirros_notify_reset
+
+log "==== service finished: exit code $REKEY_RC, total $(since "$T0")s ===="
+exit "$REKEY_RC"
