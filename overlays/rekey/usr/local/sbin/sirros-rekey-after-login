@@ -211,6 +211,15 @@ export SIRROS_PROGRESS_FILE="$LOG"
 # script's own state in UPPERCASE names so they never collide.
 have_notify() { command -v sirros_notify >/dev/null 2>&1; }
 
+# One synchronous notification first, so the log says whether they work.
+if have_notify; then
+    if sirros_notify "Securing your disk" "$SIRROS_EXPLAIN" 1; then
+        log "notifications: OK, shown to $S_NAME (id $(cat "$SIRROS_NOTIFY_IDFILE" 2>/dev/null))"
+    else
+        log "WARNING: notification failed: ${SIRROS_NOTIFY_ERR:-unknown error}"
+    fi
+fi
+
 flush_stderr() {
     if [ -s "$ERRF" ]; then
         while IFS= read -r l; do log "sirros-rekey stderr: $l"; done < "$ERRF"

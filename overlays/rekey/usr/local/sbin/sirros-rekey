@@ -69,6 +69,20 @@ trap on_exit EXIT
 # shell only notes it here (the trap runs once cryptsetup has returned).
 trap 'STOPPING=1; log "signal received (shutdown?); cryptsetup saves its progress and stops"' TERM INT HUP
 
+# progress_line JSON  Turn one cryptsetup --progress-json line into a readable
+# "Progress: 34.5%, ..." line (sirros_notify_progress reads the % from it).
+#   {"device":"/dev/x","device_bytes":"1","device_size":"2","speed":"3","eta_ms":"4","time_ms":"5"}
+json_num() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([0-9]*\)\".*/\1/p"; }
+progress_line() {
+    b=$(json_num device_bytes "$1"); z=$(json_num device_size "$1")
+    sp=$(json_num speed "$1"); eta=$(json_num eta_ms "$1")
+    if [ -z "$b" ] || [ -z "$z" ] || [ "$z" -eq 0 ]; then echo "$1"; return; fi
+    p10=$((b * 1000 / z))
+    printf 'Progress: %d.%d%%, %d of %d MiB, speed %d MiB/s, ETA %d min\n' \
+        $((p10 / 10)) $((p10 % 10)) $((b / 1048576)) $((z / 1048576)) \
+        $((${sp:-0} / 1048576)) $((${eta:-0} / 60000))
+}
+
 # run_logged TAG CMD...  Run CMD, prefix every output line (stdout+stderr) with
 # a timestamp and TAG into the log, return CMD's exit code. The reader ignores
 # TERM/INT so cryptsetup never dies of SIGPIPE while stopping cleanly.
@@ -84,7 +98,10 @@ run_logged() {
         cr=$(printf '\r')
         while IFS= read -r l; do
             l=${l%"$cr"}; l=${l##*"$cr"}
-            [ -n "$l" ] && log "$tag: $l"
+            case "$l" in
+                '{"device"'*) log "$tag: $(progress_line "$l")" ;;
+                ?*) log "$tag: $l" ;;
+            esac
         done
     )
     r=$(cat "$rcf" 2>/dev/null); rm -f "$rcf"
@@ -147,11 +164,44 @@ else
 fi
 log "mode: $MODE"
 
+# 4b. Grow the encrypted mapping to the whole partition first.
+#     On first boot systemd-repart grows the partition (8.8G -> whole eMMC), but
+#     systemd-growfs cannot grow /dev/mapper/root: the initramfs keyscript does
+#     not leave the volume key in the kernel keyring ("crypt_resize() ...
+#     Operation not permitted"), so the root filesystem stays at image size.
+#     Online re-encryption also refuses an active mapping smaller than the LUKS
+#     data segment. Fix both here: cryptsetup resize (with the passphrase), then
+#     grow the filesystem online. Not possible in the middle of a re-encryption,
+#     so only on a fresh run (a resumed run already did it).
+MAPPER="${SIRROS_MAPPER:-/dev/mapper/$NAME}"
+if [ "$MODE" = fresh ] && [ -b "$MAPPER" ]; then
+    before_sz=$(blockdev --getsize64 "$MAPPER" 2>/dev/null)
+    log "encrypted mapping size: ${before_sz:-?} bytes, partition: $(blockdev --getsize64 "$DEV" 2>/dev/null || echo '?') bytes"
+    if run_logged "resize" cryptsetup resize --key-file "$KF" "$NAME"; then
+        after_sz=$(blockdev --getsize64 "$MAPPER" 2>/dev/null)
+        log "encrypted mapping size after resize: ${after_sz:-?} bytes"
+        if [ "${after_sz:-0}" != "${before_sz:-0}" ]; then
+            fstype=$(findmnt -n -o FSTYPE / 2>/dev/null)
+            case "$fstype" in
+                ext4|ext3) run_logged "resize2fs" resize2fs "$MAPPER" || log "WARNING: resize2fs failed (continuing)" ;;
+                btrfs) run_logged "btrfs" btrfs filesystem resize max / || log "WARNING: btrfs resize failed (continuing)" ;;
+                *) log "filesystem '$fstype' cannot be grown online, skipped" ;;
+            esac
+            log "root filesystem: $(df -h / 2>/dev/null | tail -n 1)"
+        fi
+    else
+        log "WARNING: cryptsetup resize failed; re-encryption may refuse to start (see the lines above)"
+    fi
+fi
+
 # Optional cryptsetup features, used only when this version has them.
 help=$(cryptsetup reencrypt --help 2>&1)
 OPTS=""
 case "$help" in *--active-name*) OPTS="$OPTS --active-name $NAME" ;; esac
 case "$help" in *--progress-frequency*) OPTS="$OPTS --progress-frequency $PROGRESS_FREQ" ;; esac
+# --batch-mode silences cryptsetup's normal progress lines; the JSON progress
+# is still printed in batch mode, so ask for it (converted by progress_line).
+case "$help" in *--progress-json*) OPTS="$OPTS --progress-json" ;; esac
 log "extra options:${OPTS:- none}"
 
 log "re-encrypting (this takes a while; the system stays usable)"

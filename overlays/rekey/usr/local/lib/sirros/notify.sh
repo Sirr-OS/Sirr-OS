@@ -7,7 +7,8 @@
 # place (same id), so the user sees a single entry with a running timer.
 #
 # Everything is best effort: a failure here must never affect the caller.
-# Set SIRROS_NOTIFY_DEBUG=1 to see what gdbus answers.
+# Set SIRROS_NOTIFY_DEBUG=1 to see what gdbus answers; after a failed
+# sirros_notify, SIRROS_NOTIFY_ERR says why.
 #
 # Optional inputs (set by sirros-rekey-after-login):
 #   SIRROS_SESSION_UID / SIRROS_SESSION_NAME  session user already detected,
@@ -28,7 +29,7 @@ if [ -z "${SIRROS_NOTIFY_IDFILE:-}" ]; then
     fi
 fi
 SIRROS_NOTIFY_ICON="${SIRROS_NOTIFY_ICON:-drive-harddisk-symbolic}"
-SIRROS_EXPLAIN="Generating a new unique encryption key for your disk in the background, keep the charger connected."
+SIRROS_EXPLAIN="${SIRROS_EXPLAIN:-Keep the phone on the charger while the new encryption key is created.}"
 
 # Prints "UID NAME" of the active user session; prints nothing if there is none.
 sirros_session_user() {
@@ -55,45 +56,71 @@ sirros_fmt_elapsed() {
     printf '%d:%02d:%02d' $(($1 / 3600)) $((($1 % 3600) / 60)) $(($1 % 60))
 }
 
-# Last cryptsetup percentage found in SIRROS_PROGRESS_FILE ("12.3%"), or nothing.
+# Current re-encryption percentage ("34.5%"), or nothing if unknown.
+# 1. last "Progress:" line in SIRROS_PROGRESS_FILE (written by sirros-rekey);
+# 2. otherwise (root only) the live device-mapper tables. During an online
+#    re-encryption cryptsetup maps "root" linearly onto "root-overlay", whose
+#    table follows the LUKS2 segments (forward direction): first the part
+#    already under the new key, then (only while a chunk is being written) a
+#    linear hotzone, then the rest still under the old key.
 sirros_progress_pct() {
-    [ -r "${SIRROS_PROGRESS_FILE:-}" ] || return 0
-    tail -n 50 "$SIRROS_PROGRESS_FILE" 2>/dev/null \
-        | sed -n 's/.*Progress:[[:space:]]*\([0-9][0-9.]*%\).*/\1/p' | tail -n 1
+    p=""
+    if [ -r "${SIRROS_PROGRESS_FILE:-}" ]; then
+        p=$(tail -n 50 "$SIRROS_PROGRESS_FILE" 2>/dev/null \
+            | sed -n 's/.*Progress:[[:space:]]*\([0-9][0-9.]*%\).*/\1/p' | tail -n 1)
+    fi
+    if [ -z "$p" ] && [ "$(id -u)" -eq 0 ] && command -v dmsetup >/dev/null 2>&1; then
+        p=$(dmsetup table "${SIRROS_DM_NAME:-root}-overlay" 2>/dev/null | sirros_dm_pct)
+    fi
+    printf '%s' "$p"
+}
+
+# Reads a dm table on stdin, prints the % already re-encrypted (see above).
+# One single target means nothing to measure (not running, or finished).
+sirros_dm_pct() {
+    awk '{t += $2} NR == 1 {d = ($3 == "crypt") ? $2 : 0}
+         END {if (NR > 1 && t > 0) printf "%.1f%%", d * 100 / t}'
 }
 
 # Run one org.freedesktop.Notifications method as the session user.
 # Needs SIRROS__NAME and SIRROS__BUS (set by sirros_notify).
 sirros__call() {
     if [ "$(id -u)" -eq 0 ]; then
-        set -- runuser -u "$SIRROS__NAME" -- "$@"
+        runuser -u "$SIRROS__NAME" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=$SIRROS__BUS" \
+            gdbus call --session --dest org.freedesktop.Notifications \
+            --object-path /org/freedesktop/Notifications --method "$@"
+    else
+        env DBUS_SESSION_BUS_ADDRESS="unix:path=$SIRROS__BUS" \
+            gdbus call --session --dest org.freedesktop.Notifications \
+            --object-path /org/freedesktop/Notifications --method "$@"
     fi
-    env DBUS_SESSION_BUS_ADDRESS="unix:path=$SIRROS__BUS" \
-        gdbus call --session --dest org.freedesktop.Notifications \
-        --object-path /org/freedesktop/Notifications --method "$@"
 }
 
-# sirros_notify SUMMARY BODY [URGENCY]     urgency: 0 low, 1 normal, 2 critical
+# sirros_notify SUMMARY BODY [URGENCY] [PERCENT]
+#   urgency: 0 low, 1 normal, 2 critical
+#   PERCENT (0-100) is sent as the standard "value" hint, which notification
+#   servers that support it draw as a progress bar.
 # Creates the notification the first time and replaces it on later calls.
 sirros_notify() {
+    SIRROS_NOTIFY_ERR=""
     info=$(sirros_session_user)
-    [ -n "$info" ] || return 1
+    [ -n "$info" ] || { SIRROS_NOTIFY_ERR="no active user session"; return 1; }
     uid=${info%% *}
     SIRROS__NAME=${info#* }
     SIRROS__BUS="${SIRROS_RUNDIR:-/run}/user/$uid/bus"
-    [ -S "$SIRROS__BUS" ] || return 1
+    [ -S "$SIRROS__BUS" ] || { SIRROS_NOTIFY_ERR="no session bus at $SIRROS__BUS"; return 1; }
 
     rid=0
     [ -r "$SIRROS_NOTIFY_IDFILE" ] && rid=$(cat "$SIRROS_NOTIFY_IDFILE" 2>/dev/null)
     case "$rid" in ''|*[!0-9]*) rid=0 ;; esac
 
-    err=/dev/null
-    [ -n "${SIRROS_NOTIFY_DEBUG:-}" ] && err=/dev/stderr
-
+    # stderr is kept so a failure can be explained (SIRROS_NOTIFY_ERR).
     out=$(sirros__call org.freedesktop.Notifications.Notify \
         "SirrOS" "$rid" "$SIRROS_NOTIFY_ICON" "'$1'" "'$2'" "[]" \
-        "{'urgency': <byte ${3:-1}>, 'resident': <true>}" 0 2>"$err")
+        "{'urgency': <byte ${3:-1}>, 'resident': <true>${4:+, 'value': <int32 $4>}}" 0 2>&1)
     rc=$?
+    # shellcheck disable=SC2034  # read by the caller
+    [ "$rc" -eq 0 ] || SIRROS_NOTIFY_ERR="as $SIRROS__NAME via $SIRROS__BUS: $(printf '%s' "$out" | tr '\n' ' ')"
     [ -n "${SIRROS_NOTIFY_DEBUG:-}" ] && echo "notify: rc=$rc out=$out" >&2
 
     # Answer looks like: (uint32 7,)
@@ -124,12 +151,29 @@ sirros_notify_progress() {
         el=$(($(date +%s) - start))
         if [ "$first" = 1 ]; then urg=1; else urg=${SIRROS_UPDATE_URGENCY:-0}; fi
         pct=$(sirros_progress_pct)
-        title="Securing your disk  $(sirros_fmt_elapsed "$el")"
-        [ -n "$pct" ] && title="$title  ($pct)"
-        sirros_notify "$title" "$SIRROS_EXPLAIN" "$urg"
+        ipct=${pct%%[.%]*}
+        case "$ipct" in ''|*[!0-9]*) ipct="" ;; esac
+        if [ -n "$ipct" ]; then
+            title="Securing your disk $ipct%"
+            body="$(sirros_bar "$ipct") $ipct% ($(sirros_fmt_elapsed "$el"))\\n$SIRROS_EXPLAIN"
+        else
+            title="Securing your disk"
+            body="Starting... ($(sirros_fmt_elapsed "$el"))\\n$SIRROS_EXPLAIN"
+        fi
+        sirros_notify "$title" "$body" "$urg" "$ipct"
         first=0
         sleep "$interval"
     done
+}
+
+# Text progress bar, 12 cells, for servers that ignore the "value" hint.
+sirros_bar() {
+    n=$(($1 * 12 / 100)); b=""; i=0
+    while [ "$i" -lt 12 ]; do
+        if [ "$i" -lt "$n" ]; then b="$b▰"; else b="$b▱"; fi
+        i=$((i + 1))
+    done
+    printf '%s' "$b"
 }
 
 # Forget the notification id so the next run starts a fresh notification.
