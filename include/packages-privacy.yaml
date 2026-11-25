@@ -20,6 +20,7 @@ actions:
       - gnupg
       - mat2
       - onionshare
+      - nftables
 #      - opensnitch ## Good firewall GUI but can cause some crashes.
       - gtkhash
 

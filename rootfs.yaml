@@ -102,6 +102,16 @@ actions:
     chroot: true
     script: scripts/setup-dns-resolver.sh
 
+  - action: overlay
+    description: Network privacy (DNS, MAC, DHCP hostname, connectivity check) and firewall
+    source: overlays/network/
+    destination: /
+
+  - action: run
+    description: Enable nftables firewall
+    chroot: true
+    command: systemctl enable nftables.service
+
   - action: recipe
     recipe: include/packages-sirros.yaml
 
