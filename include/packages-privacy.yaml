@@ -37,30 +37,42 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/commander-Z3R0/atinout/releases/download/V0.9.1/atinout_0.9.1_arm64.deb
-      dpkg -i atinout_0.9.1_arm64.deb
-      rm -f atinout_0.9.1_arm64.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/atinout_0.9.1_arm64.deb https://github.com/commander-Z3R0/atinout/releases/download/V0.9.1/atinout_0.9.1_arm64.deb
+      echo "f0f7cf9e58114be2c440d220f2952be6ba6e56400fad0f1cd939221032dbebe1  /tmp/atinout_0.9.1_arm64.deb" | sha256sum -c -
+      dpkg -i /tmp/atinout_0.9.1_arm64.deb
+      rm -f /tmp/atinout_0.9.1_arm64.deb
 
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/Sirr-OS/SirrAT/releases/download/v1.0.1/SirrAT_v1.0.1_arm64.deb
-      dpkg -i SirrAT_v1.0.1_arm64.deb
-      rm -f SirrAT_v1.0.1_arm64.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/SirrAT_v1.0.1_arm64.deb https://github.com/Sirr-OS/SirrAT/releases/download/v1.0.1/SirrAT_v1.0.1_arm64.deb
+      echo "f3a61f517f219201bdd7a84c4a84ac623e57ae1529749076ecdb1c200b020a4a  /tmp/SirrAT_v1.0.1_arm64.deb" | sha256sum -c -
+      dpkg -i /tmp/SirrAT_v1.0.1_arm64.deb
+      rm -f /tmp/SirrAT_v1.0.1_arm64.deb
 
   - action: run
     chroot: true
     command: |
-      wget https://github.com/Sirr-OS/phosh-pam-duress/releases/download/latest/phosh-pam-duress_1.0.0_arm64.deb
-      dpkg -i phosh-pam-duress_1.0.0_arm64.deb
-      rm -f phosh-pam-duress_1.0.0_arm64.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/phosh-pam-duress_1.0.0_arm64.deb https://github.com/Sirr-OS/phosh-pam-duress/releases/download/latest/phosh-pam-duress_1.0.0_arm64.deb
+      echo "08122fb3d120d7245afddd2375fff31eddcf4574016bb6f6edba9918a0dd77b4  /tmp/phosh-pam-duress_1.0.0_arm64.deb" | sha256sum -c -
+      dpkg -i /tmp/phosh-pam-duress_1.0.0_arm64.deb
+      rm -f /tmp/phosh-pam-duress_1.0.0_arm64.deb
 
   - action: run
     chroot: true
     command: |
-      wget  https://github.com/Sirr-OS/SirrLuks/releases/download/v1.0.1/SirrLuks_v1.0.1_arm64.deb
-      dpkg -i SirrLuks_v1.0.1_arm64.deb
-      rm -f SirrLuks_v1.0.1_arm64.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/SirrLuks_v1.0.1_arm64.deb https://github.com/Sirr-OS/SirrLuks/releases/download/v1.0.1/SirrLuks_v1.0.1_arm64.deb
+      echo "525519e42c12e8145d17b7cba0893633e321ed2efb8d51fbc58fdce5a8aade88  /tmp/SirrLuks_v1.0.1_arm64.deb" | sha256sum -c -
+      dpkg -i /tmp/SirrLuks_v1.0.1_arm64.deb
+      rm -f /tmp/SirrLuks_v1.0.1_arm64.deb
 
 # ------------------------------------
 # Configuration Dnscrypt-proxy
@@ -94,7 +106,10 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget https://github.com/Sirr-OS/privacy-conf/releases/download/v1.1.0/privacy-conf_v1.1.0_all.deb
-      dpkg -i privacy-conf_v1.1.0_all.deb
-      rm -f privacy-conf_v1.1.0_all.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/privacy-conf_v1.1.0_all.deb https://github.com/Sirr-OS/privacy-conf/releases/download/v1.1.0/privacy-conf_v1.1.0_all.deb
+      echo "2158fcc34aabe4043afc32aa43b5b63ea48ade91dfce9585cab9fee10385e47a  /tmp/privacy-conf_v1.1.0_all.deb" | sha256sum -c -
+      dpkg -i /tmp/privacy-conf_v1.1.0_all.deb
+      rm -f /tmp/privacy-conf_v1.1.0_all.deb
 

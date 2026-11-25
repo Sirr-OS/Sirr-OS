@@ -6,17 +6,23 @@ actions:
   - action: run
     chroot: true
     command: |
-      wget https://github.com/Sirr-OS/plymouth-theme-sirros/releases/download/main/plymouth-theme-sirros_1.1_all.deb
-      dpkg -i plymouth-theme-sirros_1.1_all.deb 
-      rm -f plymouth-theme-sirros_1.1_all.deb 
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/plymouth-theme-sirros_1.1_all.deb https://github.com/Sirr-OS/plymouth-theme-sirros/releases/download/main/plymouth-theme-sirros_1.1_all.deb
+      echo "ebb05182849d7fec379f2d7927f9b4c9db2e45e1f9debe467cedef7c664e5e07  /tmp/plymouth-theme-sirros_1.1_all.deb" | sha256sum -c -
+      dpkg -i /tmp/plymouth-theme-sirros_1.1_all.deb
+      rm -f /tmp/plymouth-theme-sirros_1.1_all.deb
       plymouth-set-default-theme -R sirros
 
   - action: run
     chroot: true
     command: |
-      wget https://github.com/Sirr-OS/sirros-theme/releases/download/latest/theme-sirros-v1.0.0.deb
-      dpkg -i theme-sirros-v1.0.0.deb
-      rm -f theme-sirros-v1.0.0.deb
+      # Pinned SHA-256: the build fails if the release asset changes
+      set -e
+      wget -q -O /tmp/theme-sirros-v1.0.0.deb https://github.com/Sirr-OS/sirros-theme/releases/download/latest/theme-sirros-v1.0.0.deb
+      echo "2fc96155805a1cb4940cfca70d8c73c5b101f626639267dc5bb9c2499a294e61  /tmp/theme-sirros-v1.0.0.deb" | sha256sum -c -
+      dpkg -i /tmp/theme-sirros-v1.0.0.deb
+      rm -f /tmp/theme-sirros-v1.0.0.deb
 
   - action: run
     chroot: true
